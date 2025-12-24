@@ -171,14 +171,15 @@ func (u *URL_llm) Request_llm() (string, error) {
 //
 // 파이썬 원본:
 // def show(body):
-//     in_tag = False
-//     for c in body:
-//         if c == "<":
-//             in_tag = True
-//         elif c == ">":
-//             in_tag = False
-//         elif not in_tag:
-//             print(c, end="")
+//
+//	in_tag = False
+//	for c in body:
+//	    if c == "<":
+//	        in_tag = True
+//	    elif c == ">":
+//	        in_tag = False
+//	    elif not in_tag:
+//	        print(c, end="")
 func show_llm(body string) {
 	// 태그 안에 있는지 추적하는 플래그
 	inTag := false
@@ -206,8 +207,9 @@ func show_llm(body string) {
 //
 // 파이썬 원본:
 // def load(url):
-//     body = url.request()
-//     show(body)
+//
+//	body = url.request()
+//	show(body)
 func load_llm(urlObj *URL_llm) {
 	// 1. URL 객체의 Request_llm 메서드 호출해서 HTML 가져오기
 	body, err := urlObj.Request_llm()
