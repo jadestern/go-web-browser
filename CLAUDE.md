@@ -68,3 +68,45 @@ go build show_llm.go
 # Run tests (when test files exist)
 go test -v
 ```
+
+## GitHub CLI (gh) Usage
+
+When working with GitHub-related tasks, **actively use the `gh` CLI tool** for all operations:
+
+### Common gh Commands
+
+```bash
+# View repository information
+gh repo view
+
+# Create a pull request
+gh pr create --title "Title" --body "Description"
+
+# List pull requests
+gh pr list
+
+# View PR details
+gh pr view <PR-number>
+
+# View PR comments
+gh api repos/OWNER/REPO/pulls/<PR-number>/comments
+
+# Create an issue
+gh issue create --title "Title" --body "Description"
+
+# List issues
+gh issue list
+
+# View workflow runs
+gh run list
+
+# View workflow details
+gh run view <run-id>
+```
+
+### Best Practices
+
+- **Always prefer `gh` over manual git operations** when interacting with GitHub
+- Use `gh` for creating PRs, viewing issues, checking CI status, etc.
+- `gh` provides better integration with GitHub features than raw git commands
+- When the user provides a GitHub URL, use `gh` commands to fetch the information
