@@ -100,12 +100,23 @@ func (u *URL) Request() (string, error) {
 
 	// 2. HTTP 요청 메시지 만들기 (서버에 보낼 편지)
 	// \r\n은 HTTP 규격에서 사용하는 줄바꿈입니다.
-	request := fmt.Sprintf(
-		"GET %s HTTP/1.0\r\n"+
-			"Host: %s\r\n"+
-			"\r\n",
-		u.Path, u.Host,
-	)
+	headers := map[string]string{
+		"Host":       u.Host,
+		"Connection": "close",
+		"User-Agent": "GoWebBrowser/1.0",
+	}
+
+	requestLine := fmt.Sprintf("GET %s HTTP/1.0\r\n", u.Path)
+
+	var headerLines strings.Builder
+	headerLines.WriteString(requestLine)
+	for key, value := range headers {
+		headerLines.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
+	}
+
+	headerLines.WriteString("\r\n")
+
+	request := headerLines.String()
 
 	// 3. 서버에 메시지 보내기
 	// Write는 바이트([]byte) 형태로 보내야 하므로 타입 변환을 해줍니다.

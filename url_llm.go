@@ -122,12 +122,26 @@ func (u *URL_llm) Request_llm() (string, error) {
 	}()
 
 	// 2. HTTP 요청 메시지 만들기
-	request := fmt.Sprintf(
-		"GET %s HTTP/1.0\r\n"+
-			"Host: %s\r\n"+
-			"\r\n",
-		u.Path, u.Host,
-	)
+	// HTTP/1.1 사용 및 헤더를 맵으로 관리하여 확장 가능하게 구성
+	headers := map[string]string{
+		"Host":       u.Host,
+		"Connection": "close",
+		"User-Agent": "GoWebBrowser/1.0",
+	}
+
+	// Request Line 구성: GET /path HTTP/1.1
+	requestLine := fmt.Sprintf("GET %s HTTP/1.1\r\n", u.Path)
+
+	// 헤더들을 문자열로 조합
+	var headerLines strings.Builder
+	headerLines.WriteString(requestLine)
+	for key, value := range headers {
+		headerLines.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
+	}
+	// 헤더와 본문 사이의 빈 줄
+	headerLines.WriteString("\r\n")
+
+	request := headerLines.String()
 
 	// 3. 서버에 메시지 보내기
 	_, err = conn.Write([]byte(request))

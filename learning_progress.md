@@ -36,14 +36,19 @@
 ### 1.3 HTTP 프로토콜
 - **✅ HTTP 요청 메시지 구성**: GET 메서드로 리소스 요청
   - [url.go:69-74](url.go:69) - HTTP/1.0 요청 포맷
+  - [url_llm.go:124-150](url_llm.go:124) - HTTP/1.1 요청 포맷 (개선)
 - **✅ HTTP 응답 파싱**: 상태 라인, 헤더, 바디 분리
   - [url.go:86-113](url.go:86) - 응답 읽기 로직
+- **✅ HTTP 헤더 관리**: 확장 가능한 헤더 구조
+  - [url_llm.go:126-130](url_llm.go:126) - map으로 헤더 관리
 
 **주요 개념**:
 - HTTP 요청 구조: 메서드, 경로, 프로토콜 버전, 헤더
 - `\r\n`: HTTP 프로토콜의 줄바꿈 (CRLF)
 - `bufio.NewReader()`: 버퍼링된 읽기 ([url.go:86](url.go:86))
 - `io.ReadAll()`: 모든 데이터 읽기 ([url.go:108](url.go:108))
+- `map[string]string`: 키-값 쌍으로 헤더 관리
+- `strings.Builder`: 효율적인 문자열 조합 ([url_llm.go:136-142](url_llm.go:136))
 
 ### 1.4 고급 네트워킹 (미학습)
 - ⬜ **HTTPS/TLS**: 암호화된 통신
@@ -216,7 +221,11 @@
   - 포트 443 (HTTPS) vs 80 (HTTP)
   - defer 에러 처리 ([show_llm.go:86-92](show_llm.go:86))
 - [ ] 1.8 요약
-- [ ] 1.9 연습 문제
+- [x] 1.9 연습 문제 - 2025-12-25
+  - **HTTP/1.1 지원**: HTTP/1.0에서 HTTP/1.1로 업그레이드
+  - **Connection 헤더**: `Connection: close` 추가
+  - **User-Agent 헤더**: `User-Agent: GoWebBrowser/1.0` 추가
+  - **확장 가능한 헤더 구조**: map과 strings.Builder 사용 ([url_llm.go:124-150](url_llm.go:124))
 
 #### CHAPTER 2: 화면에 그리기 ⬜
 - [ ] 2.1 창 만들기
@@ -388,3 +397,44 @@
 #### 학습 환경 설정
 - **LLM 파일 네이밍 규칙**: `_llm` postfix로 충돌 방지
 - **Wrapup 규칙**: 완료 시 `learning_progress.md` 자동 업데이트
+
+---
+
+### 2025-12-25: CHAPTER 1 연습 문제 - HTTP/1.1 및 헤더 개선
+
+#### HTTP/1.1 지원 구현
+- **HTTP/1.0 → HTTP/1.1 업그레이드** ([url_llm.go:133](url_llm.go:133))
+  - Request Line: `GET /path HTTP/1.1`
+  - HTTP/1.1 기능 기반 마련
+- **필수 헤더 추가**:
+  - `Host`: 서버 호스트 이름 (HTTP/1.1 필수)
+  - `Connection: close`: 연결 종료 명시
+  - `User-Agent: GoWebBrowser/1.0`: 브라우저 식별
+
+#### 확장 가능한 헤더 구조 설계
+- **map[string]string으로 헤더 관리** ([url_llm.go:126-130](url_llm.go:126))
+  - 키-값 쌍으로 헤더 저장
+  - 나중에 헤더 추가/제거가 쉬움
+  - 동적 헤더 관리 가능
+- **strings.Builder로 효율적 문자열 조합** ([url_llm.go:136-142](url_llm.go:136))
+  - 문자열 반복 연결 시 메모리 효율적
+  - `+` 연산자보다 성능 우수
+  - `WriteString()` 메서드로 순차 조합
+
+#### Go 언어 개념 학습
+- **컬렉션 타입**:
+  - `map[string]string`: 키-값 저장소
+  - `for key, value := range map`: 맵 순회
+- **문자열 빌더**:
+  - `strings.Builder`: 가변 문자열 버퍼
+  - `WriteString()`: 문자열 추가
+  - `String()`: 최종 문자열 반환
+- **코드 구조화**:
+  - 데이터 구조와 로직 분리
+  - 확장 가능한 설계 패턴
+
+#### 다음 개선 아이디어 (보류)
+- URL 구조체에 Headers 필드 추가
+- Request 메서드에 옵션 파라미터
+- 헤더 추가 메서드 (AddHeader)
+- 빌더 패턴 (WithHeader)
