@@ -14,20 +14,74 @@ This is a hands-on learning project. Claude assists with the learning process fo
 
 ### 1. Working with LLM Files
 
+**CRITICAL: Use ONE main LLM file (`browser_llm.go`) for all work. DO NOT create multiple separate LLM files.**
+
 When exploring or adding code:
 
-- **File naming**: Create a `*_llm.go` file (e.g., `show_llm.go`) as a working copy
+- **File naming**: Work ONLY in `browser_llm.go` (the main LLM working file)
+  - DO NOT create new files like `data_llm.go`, `show_llm.go`, etc.
+  - All new features are added to the existing `browser_llm.go`
+
 - **Naming convention**: Add `_llm` postfix to ALL type and function names to avoid conflicts
   - Example: `URL` → `URL_llm`, `NewURL` → `NewURL_llm`, `show` → `show_llm`
   - This allows the LLM file to be built and tested independently in the same folder
   - When integrating into actual files, simply remove the `_llm` postfix
-- **Claude's role**:
-  - Add, modify, and test code ONLY in `*_llm.go` files
-  - Use `_llm` postfix for all identifiers (types, functions, methods)
-  - Build and verify the code works correctly
-  - Provide integration instructions with `_llm` removed
-- **Student's role**: Manually review and apply changes to the actual implementation files
-- **Important**: Claude must NEVER directly modify the actual implementation files (e.g., `url.go`). This ensures hands-on learning.
+
+- **Claude's workflow**:
+  1. Read `browser_llm.go` to understand current implementation
+  2. Modify `browser_llm.go` to add/change features (using `_llm` postfix)
+  3. Build: `go build browser_llm.go`
+  4. Test: `go run browser_llm.go <test-url>` or `.\browser_llm.exe <test-url>`
+  5. If successful, provide integration instructions using the **Before/After format** (see below)
+
+- **Student's role**: Manually review and apply changes to the actual implementation file (`browser.go`)
+
+- **Important**:
+  - Claude must NEVER directly modify `browser.go`. This ensures hands-on learning.
+  - Claude must NEVER create separate `*_llm.go` files. Only work in `browser_llm.go`.
+
+### Integration Instructions Format
+
+When providing integration instructions, use the **Before/After format** with detailed explanations:
+
+**Structure for each change:**
+1. **Feature description**: What functionality is being added/changed
+2. **Why it's needed**: Explain the purpose and reasoning
+3. **Before code**: Show the original code from `browser.go`
+4. **After code**: Show what the code should look like with changes (remove `_llm` postfix)
+
+**Example format:**
+
+```markdown
+### Change 1: [Feature Name]
+
+**What:** Brief description of the feature
+**Why:** Explanation of why this change is necessary
+
+**Before:**
+```go
+// Original code from browser.go
+func OriginalFunction() {
+    // existing code
+}
+```
+
+**After:**
+```go
+// Modified code (without _llm postfix)
+func OriginalFunction() {
+    // new code added
+    // existing code
+}
+```
+```
+
+**Key principles:**
+- Don't just say "add this at line X" - explain the **purpose and context**
+- Show **complete code blocks** for Before/After, not just snippets
+- Explain **why** each change is necessary for understanding
+- Include **comments** in the After code to guide the student
+- For new methods/functions, show where they should be placed relative to existing code
 
 ### 2. Progress Tracking
 
