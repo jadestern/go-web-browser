@@ -40,7 +40,7 @@ const (
 	HeaderUserAgent  = "User-Agent"
 )
 
-// HTTP 헤더 값
+// ConnectionClose HTTP 헤더 값
 const (
 	ConnectionClose = "close"
 )
