@@ -13,6 +13,45 @@ import (
 	"strings"
 )
 
+// 프로토콜 스킴 상수
+const (
+	SchemeHTTP  = "http"
+	SchemeHTTPS = "https"
+	SchemeFile  = "file"
+	SchemeData  = "data"
+)
+
+// 기본 포트 번호
+const (
+	DefaultHTTPPort  = 80
+	DefaultHTTPSPort = 443
+)
+
+// HTTP 관련 상수
+const (
+	HTTPVersion = "HTTP/1.1"
+	UserAgent   = "GoWebBrowser/1.0"
+)
+
+// HTTP 헤더 이름
+const (
+	HeaderHost       = "Host"
+	HeaderConnection = "Connection"
+	HeaderUserAgent  = "User-Agent"
+)
+
+// HTTP 헤더 값
+const (
+	ConnectionClose = "close"
+)
+
+// URL 구분자
+const (
+	SchemeDelimiter = "://"
+	PathDelimiter   = "/"
+	PortDelimiter   = ":"
+)
+
 // URL 구조체: 주소 정보를 담는 바구니입니다.
 type URL struct {
 	Scheme string // http 같은 프로토콜
@@ -23,9 +62,9 @@ type URL struct {
 
 // NewURL NewURL: 주소 문자열을 분석해서 URL 구조체를 만들어주는 함수입니다.
 func NewURL(urlStr string) (*URL, error) {
-	if strings.HasPrefix(urlStr, "data:") {
+	if strings.HasPrefix(urlStr, SchemeData+PortDelimiter) {
 		return &URL{
-			Scheme: "data",
+			Scheme: SchemeData,
 			Host:   "",
 			Port:   0,
 			Path:   urlStr[5:],
@@ -33,13 +72,13 @@ func NewURL(urlStr string) (*URL, error) {
 	}
 	// 1. "://"를 기준으로 프로토콜(Scheme)을 분리합니다.
 	// SplitN(문자열, 구분자, 개수) -> 최대 2개로 나눕니다.
-	parts := strings.SplitN(urlStr, "://", 2)
+	parts := strings.SplitN(urlStr, SchemeDelimiter, 2)
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("주소 형식이 잘못되었습니다 (:// 없음)")
 	}
 	scheme := parts[0]
 
-	if scheme != "http" && scheme != "https" && scheme != "file" {
+	if scheme != SchemeHTTP && scheme != SchemeHTTPS && scheme != SchemeFile {
 		return nil, fmt.Errorf("http, https, file 또는 data 프로토콜만 지원합니다")
 	}
 
@@ -47,27 +86,27 @@ func NewURL(urlStr string) (*URL, error) {
 	var host, path string
 	var port int
 
-	if scheme == "file" {
+	if scheme == SchemeFile {
 		host = ""
 		port = 0
 
 		path = rest
 	} else {
 		// 슬래시(/)가 포함되어 있는지 확인합니다.
-		if strings.Contains(rest, "/") {
+		if strings.Contains(rest, PathDelimiter) {
 			// naver.com/search 같은 경우 "/" 기준으로 나눕니다.
-			hostPath := strings.SplitN(rest, "/", 2)
+			hostPath := strings.SplitN(rest, PathDelimiter, 2)
 			host = hostPath[0]
-			path = "/" + hostPath[1]
+			path = PathDelimiter + hostPath[1]
 		} else {
 			// naver.com 처럼 슬래시가 없는 경우 전체가 호스트이고 경로는 "/"입니다.
 			host = rest
-			path = "/"
+			path = PathDelimiter
 		}
 	}
 
-	if strings.Contains(host, ":") {
-		hostPort := strings.SplitN(host, ":", 2)
+	if strings.Contains(host, PortDelimiter) {
+		hostPort := strings.SplitN(host, PortDelimiter, 2)
 		host = hostPort[0]
 
 		var err error
@@ -76,10 +115,10 @@ func NewURL(urlStr string) (*URL, error) {
 			return nil, fmt.Errorf("포트 번호가 올바르지 않습니다: %s", hostPort[1])
 		}
 	} else {
-		if scheme == "https" {
-			port = 443
+		if scheme == SchemeHTTPS {
+			port = DefaultHTTPSPort
 		} else {
-			port = 80
+			port = DefaultHTTPPort
 		}
 	}
 
@@ -94,11 +133,11 @@ func NewURL(urlStr string) (*URL, error) {
 
 // Request Request: 실제로 서버에 연결해서 데이터를 가져오는 메서드입니다.
 func (u *URL) Request() (string, error) {
-	if u.Scheme == "file" {
+	if u.Scheme == SchemeFile {
 		return u.requestFile()
 	}
 
-	if u.Scheme == "data" {
+	if u.Scheme == SchemeData {
 		return u.requestData()
 	}
 
@@ -157,7 +196,7 @@ func (u *URL) requestHTTP() (string, error) {
 
 	address := fmt.Sprintf("%s:%d", u.Host, u.Port)
 
-	if u.Scheme == "https" {
+	if u.Scheme == SchemeHTTPS {
 		conn, err = tls.Dial("tcp", address, nil)
 	} else {
 		conn, err = net.Dial("tcp", address)
@@ -176,12 +215,12 @@ func (u *URL) requestHTTP() (string, error) {
 	// 2. HTTP 요청 메시지 만들기
 	// (기존 HTTP 요청 코드 그대로 유지)
 	headers := map[string]string{
-		"Host":       u.Host,
-		"Connection": "close",
-		"User-Agent": "GoWebBrowser/1.0",
+		HeaderHost:       u.Host,
+		HeaderConnection: ConnectionClose,
+		HeaderUserAgent:  UserAgent,
 	}
 
-	requestLine := fmt.Sprintf("GET %s HTTP/1.0\r\n", u.Path)
+	requestLine := fmt.Sprintf("GET %s %s\r\n", u.Path, HTTPVersion)
 
 	var headerLines strings.Builder
 	headerLines.WriteString(requestLine)

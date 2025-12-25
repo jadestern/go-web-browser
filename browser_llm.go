@@ -13,6 +13,45 @@ import (
 	"strings"
 )
 
+// 프로토콜 스킴 상수
+const (
+	SchemeHTTP_llm  = "http"
+	SchemeHTTPS_llm = "https"
+	SchemeFile_llm  = "file"
+	SchemeData_llm  = "data"
+)
+
+// 기본 포트 번호
+const (
+	DefaultHTTPPort_llm  = 80
+	DefaultHTTPSPort_llm = 443
+)
+
+// HTTP 관련 상수
+const (
+	HTTPVersion_llm = "HTTP/1.1"
+	UserAgent_llm   = "GoWebBrowser/1.0"
+)
+
+// HTTP 헤더 이름
+const (
+	HeaderHost_llm       = "Host"
+	HeaderConnection_llm = "Connection"
+	HeaderUserAgent_llm  = "User-Agent"
+)
+
+// HTTP 헤더 값
+const (
+	ConnectionClose_llm = "close"
+)
+
+// URL 구분자
+const (
+	SchemeDelimiter_llm = "://"
+	PathDelimiter_llm   = "/"
+	PortDelimiter_llm   = ":"
+)
+
 // URL_llm 구조체: 주소 정보를 담는 바구니입니다.
 type URL_llm struct {
 	Scheme string // http 같은 프로토콜
@@ -24,10 +63,10 @@ type URL_llm struct {
 // NewURL_llm: 주소 문자열을 분석해서 URL_llm 구조체를 만들어주는 함수입니다.
 func NewURL_llm(urlStr string) (*URL_llm, error) {
 	// data 스킴은 특별하게 처리 (data:text/html,... 형식으로 :// 없음)
-	if strings.HasPrefix(urlStr, "data:") {
+	if strings.HasPrefix(urlStr, SchemeData_llm+PortDelimiter_llm) {
 		// data: 이후 전체를 path로 저장
 		return &URL_llm{
-			Scheme: "data",
+			Scheme: SchemeData_llm,
 			Host:   "",
 			Port:   0,
 			Path:   urlStr[5:], // "data:" 이후 부분
@@ -35,14 +74,14 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 	}
 
 	// 1. "://"를 기준으로 프로토콜(Scheme)을 분리합니다.
-	parts := strings.SplitN(urlStr, "://", 2)
+	parts := strings.SplitN(urlStr, SchemeDelimiter_llm, 2)
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("주소 형식이 잘못되었습니다 (:// 없음)")
 	}
 	scheme := parts[0]
 
 	// http, https, file 스킴 지원
-	if scheme != "http" && scheme != "https" && scheme != "file" {
+	if scheme != SchemeHTTP_llm && scheme != SchemeHTTPS_llm && scheme != SchemeFile_llm {
 		return nil, fmt.Errorf("http, https 또는 file 프로토콜만 지원합니다")
 	}
 
@@ -51,7 +90,7 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 	var host, path string
 	var port int
 
-	if scheme == "file" {
+	if scheme == SchemeFile_llm {
 		// file:// 스킴의 경우
 		// file:///C:/path/to/file → rest = "/C:/path/to/file"
 		// file:///home/user/file → rest = "/home/user/file"
@@ -67,18 +106,18 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 		path = rest
 	} else {
 		// http, https 스킴의 경우
-		if strings.Contains(rest, "/") {
-			hostPath := strings.SplitN(rest, "/", 2)
+		if strings.Contains(rest, PathDelimiter_llm) {
+			hostPath := strings.SplitN(rest, PathDelimiter_llm, 2)
 			host = hostPath[0]
-			path = "/" + hostPath[1]
+			path = PathDelimiter_llm + hostPath[1]
 		} else {
 			host = rest
-			path = "/"
+			path = PathDelimiter_llm
 		}
 
 		// 3. 포트 번호 파싱
-		if strings.Contains(host, ":") {
-			hostPort := strings.SplitN(host, ":", 2)
+		if strings.Contains(host, PortDelimiter_llm) {
+			hostPort := strings.SplitN(host, PortDelimiter_llm, 2)
 			host = hostPort[0]
 
 			var err error
@@ -88,10 +127,10 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 			}
 		} else {
 			// 포트가 명시되지 않은 경우 기본 포트 사용
-			if scheme == "https" {
-				port = 443
+			if scheme == SchemeHTTPS_llm {
+				port = DefaultHTTPSPort_llm
 			} else {
-				port = 80
+				port = DefaultHTTPPort_llm
 			}
 		}
 	}
@@ -108,12 +147,12 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 // Request_llm: 실제로 서버에 연결해서 데이터를 가져오거나 파일을 읽는 메서드입니다.
 func (u *URL_llm) Request_llm() (string, error) {
 	// file:// 스킴의 경우 로컬 파일 읽기
-	if u.Scheme == "file" {
+	if u.Scheme == SchemeFile_llm {
 		return u.requestFile()
 	}
 
 	// data:// 스킴의 경우 URL에 담긴 데이터 직접 파싱
-	if u.Scheme == "data" {
+	if u.Scheme == SchemeData_llm {
 		return u.requestData()
 	}
 
@@ -189,7 +228,7 @@ func (u *URL_llm) requestHTTP() (string, error) {
 	// Port 필드를 사용하여 주소 구성
 	address := fmt.Sprintf("%s:%d", u.Host, u.Port)
 
-	if u.Scheme == "https" {
+	if u.Scheme == SchemeHTTPS_llm {
 		// HTTPS: TLS 암호화 연결
 		conn, err = tls.Dial("tcp", address, nil)
 	} else {
@@ -213,13 +252,13 @@ func (u *URL_llm) requestHTTP() (string, error) {
 	// 2. HTTP 요청 메시지 만들기
 	// HTTP/1.1 사용 및 헤더를 맵으로 관리하여 확장 가능하게 구성
 	headers := map[string]string{
-		"Host":       u.Host,
-		"Connection": "close",
-		"User-Agent": "GoWebBrowser/1.0",
+		HeaderHost_llm:       u.Host,
+		HeaderConnection_llm: ConnectionClose_llm,
+		HeaderUserAgent_llm:  UserAgent_llm,
 	}
 
 	// Request Line 구성: GET /path HTTP/1.1
-	requestLine := fmt.Sprintf("GET %s HTTP/1.1\r\n", u.Path)
+	requestLine := fmt.Sprintf("GET %s %s\r\n", u.Path, HTTPVersion_llm)
 
 	// 헤더들을 문자열로 조합
 	var headerLines strings.Builder
