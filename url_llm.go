@@ -28,49 +28,58 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 	}
 	scheme := parts[0]
 
-	// http와 https 모두 지원
-	// 파이썬의 ssl 모듈처럼 암호화된 연결 지원
-	if scheme != "http" && scheme != "https" {
-		return nil, fmt.Errorf("http 또는 https 프로토콜만 지원합니다")
+	// http, https, file 스킴 지원
+	if scheme != "http" && scheme != "https" && scheme != "file" {
+		return nil, fmt.Errorf("http, https, 또는 file 프로토콜만 지원합니다")
 	}
 
-	// 2. 호스트와 경로를 분리합니다.
+	// 2. 스킴에 따라 다르게 파싱
 	rest := parts[1]
 	var host, path string
-
-	if strings.Contains(rest, "/") {
-		hostPath := strings.SplitN(rest, "/", 2)
-		host = hostPath[0]
-		path = "/" + hostPath[1]
-	} else {
-		host = rest
-		path = "/"
-	}
-
-	// 3. 포트 번호 파싱 (Python 코드와 동일한 로직)
-	// Python 원본:
-	// if ":" in self.host:
-	//     self.host, port = self.host.split(":", 1)
-	//     self.port = int(port)
 	var port int
-	if strings.Contains(host, ":") {
-		// host에서 포트 분리: "example.com:8080" -> ["example.com", "8080"]
-		hostPort := strings.SplitN(host, ":", 2)
-		host = hostPort[0]
 
-		// 포트 문자열을 정수로 변환
-		// Python의 int(port)와 동일
-		var err error
-		port, err = strconv.Atoi(hostPort[1])
-		if err != nil {
-			return nil, fmt.Errorf("포트 번호가 올바르지 않습니다: %s", hostPort[1])
-		}
+	if scheme == "file" {
+		// file:// 스킴의 경우
+		// file:///C:/path/to/file → rest = "/C:/path/to/file"
+		// file:///home/user/file → rest = "/home/user/file"
+		// file://./relative → rest = "./relative"
+		// file://test.html → rest = "test.html"
+
+		host = "" // file 스킴은 호스트 없음
+		port = 0  // file 스킴은 포트 없음
+
+		// 경로는 rest를 그대로 사용
+		// - 절대 경로: /C:/path 또는 /home/user/file
+		// - 상대 경로: test.html 또는 ./test.html
+		path = rest
 	} else {
-		// 포트가 명시되지 않은 경우 기본 포트 사용
-		if scheme == "https" {
-			port = 443
+		// http, https 스킴의 경우
+		if strings.Contains(rest, "/") {
+			hostPath := strings.SplitN(rest, "/", 2)
+			host = hostPath[0]
+			path = "/" + hostPath[1]
 		} else {
-			port = 80
+			host = rest
+			path = "/"
+		}
+
+		// 3. 포트 번호 파싱
+		if strings.Contains(host, ":") {
+			hostPort := strings.SplitN(host, ":", 2)
+			host = hostPort[0]
+
+			var err error
+			port, err = strconv.Atoi(hostPort[1])
+			if err != nil {
+				return nil, fmt.Errorf("포트 번호가 올바르지 않습니다: %s", hostPort[1])
+			}
+		} else {
+			// 포트가 명시되지 않은 경우 기본 포트 사용
+			if scheme == "https" {
+				port = 443
+			} else {
+				port = 80
+			}
 		}
 	}
 
@@ -83,14 +92,40 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 	}, nil
 }
 
-// Request_llm: 실제로 서버에 연결해서 데이터를 가져오는 메서드입니다.
+// Request_llm: 실제로 서버에 연결해서 데이터를 가져오거나 파일을 읽는 메서드입니다.
 func (u *URL_llm) Request_llm() (string, error) {
-	// 1. 서버에 연결하기
-	// scheme에 따라 다른 연결 방식 사용
-	// Port 필드를 사용하여 주소 구성
-	// 파이썬: ctx.wrap_socket(s, server_hostname=host)
-	// Go: tls.Dial() 또는 net.Dial()
+	// file:// 스킴의 경우 로컬 파일 읽기
+	if u.Scheme == "file" {
+		return u.requestFile()
+	}
 
+	// http, https 스킴의 경우 네트워크 요청
+	return u.requestHTTP()
+}
+
+// requestFile: 로컬 파일을 읽는 헬퍼 메서드
+func (u *URL_llm) requestFile() (string, error) {
+	filePath := u.Path
+
+	// Windows 절대 경로 처리: /C:/path → C:/path
+	// file:///C:/Users/... 형식을 C:/Users/... 로 변환
+	if len(filePath) > 2 && filePath[0] == '/' && filePath[2] == ':' {
+		filePath = filePath[1:] // 앞의 / 제거
+	}
+
+	// 파일 읽기
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("파일 읽기 실패: %v", err)
+	}
+
+	fmt.Printf("--- [파일] %s 읽기 완료 ---\n", filePath)
+	return string(content), nil
+}
+
+// requestHTTP: HTTP/HTTPS 요청을 수행하는 헬퍼 메서드
+func (u *URL_llm) requestHTTP() (string, error) {
+	// 1. 서버에 연결하기
 	var conn net.Conn
 	var err error
 
@@ -99,8 +134,6 @@ func (u *URL_llm) Request_llm() (string, error) {
 
 	if u.Scheme == "https" {
 		// HTTPS: TLS 암호화 연결
-		// tls.Dial은 자동으로 TLS 핸드셰이크 수행
-		// nil = 기본 설정 사용 (안전한 기본값)
 		conn, err = tls.Dial("tcp", address, nil)
 	} else {
 		// HTTP: 일반 TCP 연결
@@ -112,7 +145,6 @@ func (u *URL_llm) Request_llm() (string, error) {
 	}
 
 	// defer에서 Close() 에러 처리
-	// Go의 모범 사례: defer 함수에서 에러를 명시적으로 처리
 	defer func() {
 		if closeErr := conn.Close(); closeErr != nil {
 			// 연결 종료 에러는 일반적으로 무시해도 되지만
@@ -237,30 +269,27 @@ func load_llm(urlObj *URL_llm) {
 }
 
 func main() {
-	// 커맨드 라인 인자 처리
-	// 파이썬의 if __name__ == "__main__": 와 동일한 역할
-	// Go에서는 main 함수가 항상 진입점이므로 조건문 불필요
+	var urlStr string
 
-	// os.Args는 커맨드 라인 인자를 담은 문자열 슬라이스
-	// os.Args[0] = 프로그램 이름
-	// os.Args[1] = 첫 번째 인자
-	// os.Args[2] = 두 번째 인자...
-
-	// 인자 개수 확인 (최소 2개 필요: 프로그램명 + URL)
+	// 인자가 없으면 기본 파일 (현재 디렉토리의 index.html) 열기
 	if len(os.Args) < 2 {
-		fmt.Println("사용법: ./show_llm <URL>")
-		fmt.Println("예시: ./show_llm http://example.com")
-		return
+		// 현재 작업 디렉토리 가져오기
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Println("현재 디렉토리를 가져올 수 없습니다:", err)
+			return
+		}
+		// 현재 디렉토리의 index.html을 기본 파일로 설정
+		// Windows: file:///C:/path/to/index.html
+		// Unix: file:///home/user/path/to/index.html
+		urlStr = fmt.Sprintf("file:///%s/index.html", strings.ReplaceAll(cwd, "\\", "/"))
+		fmt.Printf("기본 파일 열기: %s\n", urlStr)
+	} else {
+		// 커맨드 라인 인자를 URL로 사용
+		urlStr = os.Args[1]
 	}
 
-	// 첫 번째 커맨드 라인 인자를 URL로 사용
-	// 파이썬: sys.argv[1]
-	// Go: os.Args[1]
-	urlStr := os.Args[1]
-
-	// load_llm 함수로 한 번에 처리
-	// 파이썬: load(URL(sys.argv[1]))
-	// Go: load_llm을 사용하려면 URL 객체 필요
+	// URL 파싱 및 로드
 	urlObj, err := NewURL_llm(urlStr)
 	if err != nil {
 		fmt.Println("분석 에러:", err)
