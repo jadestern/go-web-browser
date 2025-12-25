@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -21,6 +23,17 @@ type URL_llm struct {
 
 // NewURL_llm: 주소 문자열을 분석해서 URL_llm 구조체를 만들어주는 함수입니다.
 func NewURL_llm(urlStr string) (*URL_llm, error) {
+	// data 스킴은 특별하게 처리 (data:text/html,... 형식으로 :// 없음)
+	if strings.HasPrefix(urlStr, "data:") {
+		// data: 이후 전체를 path로 저장
+		return &URL_llm{
+			Scheme: "data",
+			Host:   "",
+			Port:   0,
+			Path:   urlStr[5:], // "data:" 이후 부분
+		}, nil
+	}
+
 	// 1. "://"를 기준으로 프로토콜(Scheme)을 분리합니다.
 	parts := strings.SplitN(urlStr, "://", 2)
 	if len(parts) < 2 {
@@ -30,7 +43,7 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 
 	// http, https, file 스킴 지원
 	if scheme != "http" && scheme != "https" && scheme != "file" {
-		return nil, fmt.Errorf("http, https, 또는 file 프로토콜만 지원합니다")
+		return nil, fmt.Errorf("http, https 또는 file 프로토콜만 지원합니다")
 	}
 
 	// 2. 스킴에 따라 다르게 파싱
@@ -99,6 +112,11 @@ func (u *URL_llm) Request_llm() (string, error) {
 		return u.requestFile()
 	}
 
+	// data:// 스킴의 경우 URL에 담긴 데이터 직접 파싱
+	if u.Scheme == "data" {
+		return u.requestData()
+	}
+
 	// http, https 스킴의 경우 네트워크 요청
 	return u.requestHTTP()
 }
@@ -121,6 +139,45 @@ func (u *URL_llm) requestFile() (string, error) {
 
 	fmt.Printf("--- [파일] %s 읽기 완료 ---\n", filePath)
 	return string(content), nil
+}
+
+// requestData: data 스킴의 데이터를 파싱하는 헬퍼 메서드
+// data 스킴 형식: data:[<mediatype>][;base64],<data>
+// 예: data:text/html,<h1>Hello</h1>
+// 예: data:text/html;base64,PGgxPkhlbGxvPC9oMT4=
+func (u *URL_llm) requestData() (string, error) {
+	dataStr := u.Path
+
+	// ","를 기준으로 메타데이터와 실제 데이터를 분리
+	commaIdx := strings.Index(dataStr, ",")
+	if commaIdx == -1 {
+		return "", fmt.Errorf("data 스킴 형식이 잘못되었습니다 (쉼표 없음)")
+	}
+
+	metadata := dataStr[:commaIdx] // 예: "text/html" 또는 "text/html;base64"
+	data := dataStr[commaIdx+1:]   // 예: "<h1>Hello</h1>" 또는 base64 인코딩된 문자열
+
+	// base64 인코딩 확인
+	if strings.Contains(metadata, ";base64") {
+		// base64 디코딩
+		decoded, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			return "", fmt.Errorf("base64 디코딩 실패: %v", err)
+		}
+		data = string(decoded)
+		fmt.Printf("--- [data] base64 디코딩 완료 ---\n")
+	} else {
+		// URL 인코딩된 문자열 디코딩 (예: %20 → 공백)
+		decoded, err := url.QueryUnescape(data)
+		if err != nil {
+			// 디코딩 실패 시 원본 그대로 사용
+			decoded = data
+		}
+		data = decoded
+		fmt.Printf("--- [data] URL 파싱 완료 ---\n")
+	}
+
+	return data, nil
 }
 
 // requestHTTP: HTTP/HTTPS 요청을 수행하는 헬퍼 메서드
@@ -271,19 +328,40 @@ func load_llm(urlObj *URL_llm) {
 func main() {
 	var urlStr string
 
-	// 인자가 없으면 기본 파일 (현재 디렉토리의 index.html) 열기
+	// 인자가 없으면 테스트 모드로 실행
 	if len(os.Args) < 2 {
-		// 현재 작업 디렉토리 가져오기
-		cwd, err := os.Getwd()
-		if err != nil {
-			fmt.Println("현재 디렉토리를 가져올 수 없습니다:", err)
-			return
+		fmt.Println("=== data 스킴 테스트 모드 ===\n")
+
+		// 테스트할 data URL 목록
+		testURLs := []string{
+			"data:text/html,Hello world!",
+			"data:text/html,<h1>Hello</h1>",
+			"data:text/html,<h1>안녕하세요</h1><p>data 스킴 테스트</p>",
+			"data:text/html;base64,PGgxPkhlbGxvPC9oMT4=", // <h1>Hello</h1>의 base64
 		}
-		// 현재 디렉토리의 index.html을 기본 파일로 설정
-		// Windows: file:///C:/path/to/index.html
-		// Unix: file:///home/user/path/to/index.html
-		urlStr = fmt.Sprintf("file:///%s/index.html", strings.ReplaceAll(cwd, "\\", "/"))
-		fmt.Printf("기본 파일 열기: %s\n", urlStr)
+
+		for i, testURL := range testURLs {
+			fmt.Printf("테스트 %d: %s\n", i+1, testURL)
+
+			urlObj, err := NewURL_llm(testURL)
+			if err != nil {
+				fmt.Println("분석 에러:", err)
+				fmt.Println()
+				continue
+			}
+
+			body, err := urlObj.Request_llm()
+			if err != nil {
+				fmt.Println("요청 에러:", err)
+				fmt.Println()
+				continue
+			}
+
+			fmt.Print("결과: ")
+			show_llm(body)
+			fmt.Println("\n")
+		}
+		return
 	} else {
 		// 커맨드 라인 인자를 URL로 사용
 		urlStr = os.Args[1]

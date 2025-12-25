@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -21,6 +23,14 @@ type URL struct {
 
 // NewURL NewURL: 주소 문자열을 분석해서 URL 구조체를 만들어주는 함수입니다.
 func NewURL(urlStr string) (*URL, error) {
+	if strings.HasPrefix(urlStr, "data:") {
+		return &URL{
+			Scheme: "data",
+			Host:   "",
+			Port:   0,
+			Path:   urlStr[5:],
+		}, nil
+	}
 	// 1. "://"를 기준으로 프로토콜(Scheme)을 분리합니다.
 	// SplitN(문자열, 구분자, 개수) -> 최대 2개로 나눕니다.
 	parts := strings.SplitN(urlStr, "://", 2)
@@ -30,7 +40,7 @@ func NewURL(urlStr string) (*URL, error) {
 	scheme := parts[0]
 
 	if scheme != "http" && scheme != "https" && scheme != "file" {
-		return nil, fmt.Errorf("http, https 또는 file 프로토콜만 지원합니다")
+		return nil, fmt.Errorf("http, https, file 또는 data 프로토콜만 지원합니다")
 	}
 
 	rest := parts[1]
@@ -88,7 +98,41 @@ func (u *URL) Request() (string, error) {
 		return u.requestFile()
 	}
 
+	if u.Scheme == "data" {
+		return u.requestData()
+	}
+
 	return u.requestHTTP()
+}
+
+func (u *URL) requestData() (string, error) {
+	dataStr := u.Path
+
+	commaIdx := strings.Index(dataStr, ",")
+	if commaIdx == -1 {
+		return "", fmt.Errorf("data 스킴 형식이 잘못되었습니다 (쉼표 없음")
+	}
+
+	metadata := dataStr[:commaIdx]
+	data := dataStr[commaIdx+1:]
+
+	if strings.Contains(metadata, ";base64") {
+		decoded, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			return "", fmt.Errorf("base64 디코딩 실패: %v", err)
+		}
+		data = string(decoded)
+		fmt.Printf("--- [data] base64 디코딩 완료 ---\n")
+	} else {
+		decoded, err := url.QueryUnescape(data)
+		if err != nil {
+			decoded = data
+		}
+		data = decoded
+		fmt.Println("--- [data] URL 파싱 완료 ---")
+	}
+
+	return data, nil
 }
 
 func (u *URL) requestFile() (string, error) {
