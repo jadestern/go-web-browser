@@ -44,12 +44,15 @@ type DataFetcher struct{}
 // HTTPFetcher: http://, https:// 스킴을 처리하는 Fetcher 구현
 type HTTPFetcher struct{}
 
+type ViewSourceFetcher struct{}
+
 // fetcherRegistry: scheme에 따른 Fetcher를 등록하는 레지스트리
-var fetcherRegistry = map[string]Fetcher{
-	SchemeFile:  &FileFetcher{},
-	SchemeData:  &DataFetcher{},
-	SchemeHTTP:  &HTTPFetcher{},
-	SchemeHTTPS: &HTTPFetcher{},
+var fetcherRegistry = map[Scheme]Fetcher{
+	SchemeFile:       &FileFetcher{},
+	SchemeData:       &DataFetcher{},
+	SchemeHTTP:       &HTTPFetcher{},
+	SchemeHTTPS:      &HTTPFetcher{},
+	SchemeViewSource: &ViewSourceFetcher{},
 }
 
 // Request: URL에서 콘텐츠를 가져오는 메서드
@@ -187,4 +190,25 @@ func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	}
 
 	return string(bodyBytes), nil
+}
+
+func (v *ViewSourceFetcher) Fetch(u *URL) (string, error) {
+	innerURLStr := u.Path
+
+	if innerURLStr == "" {
+		return "", fmt.Errorf("view-source: 내부 URL 이 없습니다")
+	}
+
+	innerURL, err := NewURL(innerURLStr)
+	if err != nil {
+		return "", fmt.Errorf("view-source: 내부 URL 파싱 실패: %v", err)
+	}
+
+	content, err := innerURL.Request()
+	if err != nil {
+		return "", fmt.Errorf("view-source: 내부 URL 요청 실패: %v", err)
+	}
+
+	fmt.Println("--- [view-source] 원본 소스 반환 ---")
+	return content, nil
 }

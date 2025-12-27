@@ -44,12 +44,16 @@ type DataFetcher struct{}
 // HTTPFetcher: http://, https:// 스킴을 처리하는 Fetcher 구현
 type HTTPFetcher struct{}
 
+// ViewSourceFetcher: view-source:// 스킴을 처리하는 Fetcher 구현
+type ViewSourceFetcher struct{}
+
 // fetcherRegistry: scheme에 따른 Fetcher를 등록하는 레지스트리
-var fetcherRegistry = map[string]Fetcher{
-	SchemeFile:  &FileFetcher{},
-	SchemeData:  &DataFetcher{},
-	SchemeHTTP:  &HTTPFetcher{},
-	SchemeHTTPS: &HTTPFetcher{},
+var fetcherRegistry = map[Scheme]Fetcher{
+	SchemeFile:       &FileFetcher{},
+	SchemeData:       &DataFetcher{},
+	SchemeHTTP:       &HTTPFetcher{},
+	SchemeHTTPS:      &HTTPFetcher{},
+	SchemeViewSource: &ViewSourceFetcher{},
 }
 
 // Request: URL에서 콘텐츠를 가져오는 메서드
@@ -187,4 +191,29 @@ func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	}
 
 	return string(bodyBytes), nil
+}
+
+// Fetch: ViewSourceFetcher의 Fetch 메서드 구현
+func (v *ViewSourceFetcher) Fetch(u *URL) (string, error) {
+	// Path에는 내부 URL 전체가 들어있음 (예: "http://example.org/")
+	innerURLStr := u.Path
+
+	if innerURLStr == "" {
+		return "", fmt.Errorf("view-source: 내부 URL이 없습니다")
+	}
+
+	// 내부 URL 파싱
+	innerURL, err := NewURL(innerURLStr)
+	if err != nil {
+		return "", fmt.Errorf("view-source: 내부 URL 파싱 실패: %v", err)
+	}
+
+	// 내부 URL로 콘텐츠 가져오기 (원본 그대로 반환)
+	content, err := innerURL.Request()
+	if err != nil {
+		return "", fmt.Errorf("view-source: 내부 URL 요청 실패: %v", err)
+	}
+
+	fmt.Println("--- [view-source] 원본 소스 반환 ---")
+	return content, nil
 }

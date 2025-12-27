@@ -20,7 +20,8 @@ func load(urlStr string) {
 		return
 	}
 
-	show(body)
+	renderer := getRenderer(urlObj.Scheme)
+	renderer.Render(body)
 }
 
 func main() {

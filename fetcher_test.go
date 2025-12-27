@@ -347,3 +347,95 @@ func TestHTTPFetcher_InvalidHost(t *testing.T) {
 		t.Error("Request() should return error for invalid host")
 	}
 }
+
+// ============================================
+// ViewSourceFetcher 테스트
+// ============================================
+
+// TestViewSourceFetcher_DataURL view-source:data URL 테스트
+func TestViewSourceFetcher_DataURL(t *testing.T) {
+	urlStr := "view-source:data:text/html,<h1>Hello</h1>"
+
+	url, err := NewURL(urlStr)
+	if err != nil {
+		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	// view-source는 원본 HTML을 그대로 반환해야 함 (태그 포함)
+	expected := "<h1>Hello</h1>"
+	if content != expected {
+		t.Errorf("content = %q; want %q", content, expected)
+	}
+}
+
+// TestViewSourceFetcher_HTTP view-source:http URL 테스트
+func TestViewSourceFetcher_HTTP(t *testing.T) {
+	// Mock HTTP 서버 생성
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<html><body><h1>Test</h1></body></html>"))
+	}))
+	defer server.Close()
+
+	urlStr := "view-source:" + server.URL
+
+	url, err := NewURL(urlStr)
+	if err != nil {
+		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	// view-source는 원본 HTML을 그대로 반환 (태그 포함)
+	expected := "<html><body><h1>Test</h1></body></html>"
+	if content != expected {
+		t.Errorf("content = %q; want %q", content, expected)
+	}
+}
+
+// TestViewSourceFetcher_File view-source:file URL 테스트
+func TestViewSourceFetcher_File(t *testing.T) {
+	urlStr := "view-source:file://testdata/simple.html"
+
+	url, err := NewURL(urlStr)
+	if err != nil {
+		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	// view-source는 파일의 원본 HTML을 그대로 반환
+	if content == "" {
+		t.Error("content should not be empty")
+	}
+
+	// HTML 태그가 포함되어 있어야 함
+	if !containsAny(content, "<", ">") {
+		t.Errorf("content should contain HTML tags, got: %q", content)
+	}
+}
+
+// TestViewSourceFetcher_InvalidFormat view-source 잘못된 형식
+func TestViewSourceFetcher_InvalidFormat(t *testing.T) {
+	urlStr := "view-source:"
+
+	url, err := NewURL(urlStr)
+	if err != nil {
+		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+	}
+
+	_, err = url.Request()
+	if err == nil {
+		t.Error("Request() should return error for view-source with no inner URL")
+	}
+}

@@ -6,12 +6,15 @@ import (
 	"strings"
 )
 
+type Scheme string
+
 // 프로토콜 스킴 상수
 const (
-	SchemeHTTP  = "http"
-	SchemeHTTPS = "https"
-	SchemeFile  = "file"
-	SchemeData  = "data"
+	SchemeHTTP       Scheme = "http"
+	SchemeHTTPS      Scheme = "https"
+	SchemeFile       Scheme = "file"
+	SchemeData       Scheme = "data"
+	SchemeViewSource Scheme = "view-source"
 )
 
 // 기본 포트 번호
@@ -29,7 +32,7 @@ const (
 
 // URL 구조체: 주소 정보를 담는 바구니입니다.
 type URL struct {
-	Scheme string // http 같은 프로토콜
+	Scheme Scheme // http 같은 프로토콜
 	Host   string // 주소 (example.com)
 	Port   int
 	Path   string // 경로 (/index.html)
@@ -37,7 +40,15 @@ type URL struct {
 
 // NewURL NewURL: 주소 문자열을 분석해서 URL 구조체를 만들어주는 함수입니다.
 func NewURL(urlStr string) (*URL, error) {
-	if strings.HasPrefix(urlStr, SchemeData+PortDelimiter) {
+	if strings.HasPrefix(urlStr, string(SchemeViewSource)+PortDelimiter) {
+		return &URL{
+			Scheme: SchemeViewSource,
+			Host:   "",
+			Port:   0,
+			Path:   urlStr[12:],
+		}, nil
+	}
+	if strings.HasPrefix(urlStr, string(SchemeData)+PortDelimiter) {
 		return &URL{
 			Scheme: SchemeData,
 			Host:   "",
@@ -51,7 +62,7 @@ func NewURL(urlStr string) (*URL, error) {
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("주소 형식이 잘못되었습니다 (:// 없음)")
 	}
-	scheme := parts[0]
+	scheme := Scheme(parts[0])
 
 	if scheme != SchemeHTTP && scheme != SchemeHTTPS && scheme != SchemeFile {
 		return nil, fmt.Errorf("http, https, file 또는 data 프로토콜만 지원합니다")
@@ -89,7 +100,7 @@ func NewURL(urlStr string) (*URL, error) {
 //   - cleanHost: 포트 번호가 제거된 호스트 이름
 //   - port: 파싱된 포트 번호 또는 기본 포트
 //   - err: 포트 파싱 실패 시 에러
-func parsePort(scheme, host string) (cleanHost string, port int, err error) {
+func parsePort(scheme Scheme, host string) (cleanHost string, port int, err error) {
 	// file 스킴은 포트가 없음
 	if scheme == SchemeFile {
 		return host, 0, nil
@@ -124,7 +135,7 @@ func parsePort(scheme, host string) (cleanHost string, port int, err error) {
 // 반환값:
 //   - host: 호스트 이름 (file 스킴의 경우 빈 문자열)
 //   - path: 경로 (http/https는 "/" 시작, file은 rest 전체)
-func parseHostPath(scheme, rest string) (host, path string) {
+func parseHostPath(scheme Scheme, rest string) (host, path string) {
 	// file 스킴: rest 전체가 경로
 	if scheme == SchemeFile {
 		return "", rest

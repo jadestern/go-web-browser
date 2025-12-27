@@ -16,8 +16,8 @@ func TestNewURL_HTTP_DefaultPort(t *testing.T) {
 		t.Fatalf("NewURL(%q) returned error: %v", urlStr, err)
 	}
 
-	if result.Scheme != "http" {
-		t.Errorf("Scheme = %q; want %q", result.Scheme, "http")
+	if result.Scheme != SchemeHTTP {
+		t.Errorf("Scheme = %q; want %q", result.Scheme, SchemeHTTP)
 	}
 	if result.Host != "example.com" {
 		t.Errorf("Host = %q; want %q", result.Host, "example.com")
@@ -40,8 +40,8 @@ func TestNewURL_HTTP_CustomPort(t *testing.T) {
 		t.Fatalf("NewURL(%q) returned error: %v", urlStr, err)
 	}
 
-	if result.Scheme != "http" {
-		t.Errorf("Scheme = %q; want %q", result.Scheme, "http")
+	if result.Scheme != SchemeHTTP {
+		t.Errorf("Scheme = %q; want %q", result.Scheme, SchemeHTTP)
 	}
 	if result.Host != "example.com" {
 		t.Errorf("Host = %q; want %q", result.Host, "example.com")
@@ -64,8 +64,8 @@ func TestNewURL_HTTPS_DefaultPort(t *testing.T) {
 		t.Fatalf("NewURL(%q) returned error: %v", urlStr, err)
 	}
 
-	if result.Scheme != "https" {
-		t.Errorf("Scheme = %q; want %q", result.Scheme, "https")
+	if result.Scheme != SchemeHTTPS {
+		t.Errorf("Scheme = %q; want %q", result.Scheme, SchemeHTTPS)
 	}
 	if result.Host != "secure.example.com" {
 		t.Errorf("Host = %q; want %q", result.Host, "secure.example.com")
@@ -88,8 +88,8 @@ func TestNewURL_File_Windows(t *testing.T) {
 		t.Fatalf("NewURL(%q) returned error: %v", urlStr, err)
 	}
 
-	if result.Scheme != "file" {
-		t.Errorf("Scheme = %q; want %q", result.Scheme, "file")
+	if result.Scheme != SchemeFile {
+		t.Errorf("Scheme = %q; want %q", result.Scheme, SchemeFile)
 	}
 	if result.Host != "" {
 		t.Errorf("Host = %q; want empty string", result.Host)
@@ -112,8 +112,8 @@ func TestNewURL_Data(t *testing.T) {
 		t.Fatalf("NewURL(%q) returned error: %v", urlStr, err)
 	}
 
-	if result.Scheme != "data" {
-		t.Errorf("Scheme = %q; want %q", result.Scheme, "data")
+	if result.Scheme != SchemeData {
+		t.Errorf("Scheme = %q; want %q", result.Scheme, SchemeData)
 	}
 	if result.Host != "" {
 		t.Errorf("Host = %q; want empty string", result.Host)
@@ -169,7 +169,7 @@ func TestNewURL_MissingScheme(t *testing.T) {
 
 // TestParsePort_HTTP_DefaultPort HTTP 기본 포트 테스트
 func TestParsePort_HTTP_DefaultPort(t *testing.T) {
-	scheme := "http"
+	scheme := SchemeHTTP
 	host := "example.com"
 
 	cleanHost, port, err := parsePort(scheme, host)
@@ -188,7 +188,7 @@ func TestParsePort_HTTP_DefaultPort(t *testing.T) {
 
 // TestParsePort_HTTP_CustomPort HTTP 커스텀 포트 테스트
 func TestParsePort_HTTP_CustomPort(t *testing.T) {
-	scheme := "http"
+	scheme := SchemeHTTP
 	host := "example.com:8080"
 
 	cleanHost, port, err := parsePort(scheme, host)
@@ -207,7 +207,7 @@ func TestParsePort_HTTP_CustomPort(t *testing.T) {
 
 // TestParsePort_HTTPS_DefaultPort HTTPS 기본 포트 테스트
 func TestParsePort_HTTPS_DefaultPort(t *testing.T) {
-	scheme := "https"
+	scheme := SchemeHTTPS
 	host := "secure.example.com"
 
 	cleanHost, port, err := parsePort(scheme, host)
@@ -226,7 +226,7 @@ func TestParsePort_HTTPS_DefaultPort(t *testing.T) {
 
 // TestParsePort_HTTPS_CustomPort HTTPS 커스텀 포트 테스트
 func TestParsePort_HTTPS_CustomPort(t *testing.T) {
-	scheme := "https"
+	scheme := SchemeHTTPS
 	host := "secure.example.com:8443"
 
 	cleanHost, port, err := parsePort(scheme, host)
@@ -245,7 +245,7 @@ func TestParsePort_HTTPS_CustomPort(t *testing.T) {
 
 // TestParsePort_File file 스킴 테스트 (포트 없음)
 func TestParsePort_File(t *testing.T) {
-	scheme := "file"
+	scheme := SchemeFile
 	host := ""
 
 	cleanHost, port, err := parsePort(scheme, host)
@@ -264,7 +264,7 @@ func TestParsePort_File(t *testing.T) {
 
 // TestParsePort_InvalidPort 잘못된 포트 번호 테스트
 func TestParsePort_InvalidPort(t *testing.T) {
-	scheme := "http"
+	scheme := SchemeHTTP
 	host := "example.com:abc"
 
 	_, _, err := parsePort(scheme, host)
@@ -280,7 +280,7 @@ func TestParsePort_InvalidPort(t *testing.T) {
 
 // TestParseHostPath_HTTP_WithPath HTTP URL에서 host/path 분리
 func TestParseHostPath_HTTP_WithPath(t *testing.T) {
-	scheme := "http"
+	scheme := SchemeHTTP
 	rest := "example.com/index.html"
 
 	host, path := parseHostPath(scheme, rest)
@@ -295,7 +295,7 @@ func TestParseHostPath_HTTP_WithPath(t *testing.T) {
 
 // TestParseHostPath_HTTP_NoPath 경로 없는 HTTP URL
 func TestParseHostPath_HTTP_NoPath(t *testing.T) {
-	scheme := "http"
+	scheme := SchemeHTTP
 	rest := "example.com"
 
 	host, path := parseHostPath(scheme, rest)
@@ -310,7 +310,7 @@ func TestParseHostPath_HTTP_NoPath(t *testing.T) {
 
 // TestParseHostPath_HTTP_WithPort 포트가 포함된 HTTP URL
 func TestParseHostPath_HTTP_WithPort(t *testing.T) {
-	scheme := "http"
+	scheme := SchemeHTTP
 	rest := "example.com:8080/api/users"
 
 	host, path := parseHostPath(scheme, rest)
@@ -325,7 +325,7 @@ func TestParseHostPath_HTTP_WithPort(t *testing.T) {
 
 // TestParseHostPath_HTTPS_WithPath HTTPS URL에서 host/path 분리
 func TestParseHostPath_HTTPS_WithPath(t *testing.T) {
-	scheme := "https"
+	scheme := SchemeHTTPS
 	rest := "secure.example.com/login"
 
 	host, path := parseHostPath(scheme, rest)
@@ -340,7 +340,7 @@ func TestParseHostPath_HTTPS_WithPath(t *testing.T) {
 
 // TestParseHostPath_File file 스킴 처리
 func TestParseHostPath_File(t *testing.T) {
-	scheme := "file"
+	scheme := SchemeFile
 	rest := "/C:/Users/test/index.html"
 
 	host, path := parseHostPath(scheme, rest)
@@ -355,7 +355,7 @@ func TestParseHostPath_File(t *testing.T) {
 
 // TestParseHostPath_File_Relative file 스킴 상대 경로
 func TestParseHostPath_File_Relative(t *testing.T) {
-	scheme := "file"
+	scheme := SchemeFile
 	rest := "test.html"
 
 	host, path := parseHostPath(scheme, rest)
