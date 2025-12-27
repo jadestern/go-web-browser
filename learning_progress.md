@@ -572,3 +572,93 @@
   - 문제: file URL의 포트가 0이 아닌 80으로 설정됨
   - 원인: 포트 파싱 로직에서 file 스킴 제외하지 않음
   - 해결: parsePort에서 file 스킴 early return
+
+#### Fetcher 통합 테스트 작성
+**총 15개 Fetcher 테스트 추가 (모두 통과 ✅)**
+
+1. **FileFetcher 테스트** ([fetcher_test.go:14-90](fetcher_test.go:14))
+   - testdata/simple.html 읽기 테스트
+   - testdata/empty.html 빈 파일 테스트
+   - testdata/entities.html HTML 엔티티 테스트
+   - 존재하지 않는 파일 에러 처리
+
+2. **DataFetcher 테스트** ([fetcher_test.go:112-226](fetcher_test.go:112))
+   - 일반 텍스트 data URL
+   - base64 인코딩된 data URL
+   - URL 인코딩된 data URL (%20 등)
+   - 복잡한 HTML data URL
+   - 에러 케이스 (쉼표 없음, 잘못된 base64)
+
+3. **HTTPFetcher 테스트** ([fetcher_test.go:238-347](fetcher_test.go:238))
+   - httptest.NewServer를 사용한 Mock HTTP 서버
+   - 성공적인 HTTP 요청 테스트
+   - 경로가 있는 HTTP 요청
+   - 빈 응답 처리
+   - HTTPS URL 파싱 검증 (실제 요청은 skip)
+   - 존재하지 않는 호스트 에러 처리
+
+#### 코드베이스 구조 개선
+**Feature-based 파일 분리 (Option 1 적용)**
+
+- **모놀리식 구조 문제**:
+  - browser.go가 400줄 이상으로 비대화
+  - 모든 기능이 한 파일에 혼재
+  - 테스트 파일도 700줄 이상 (40개 테스트)
+
+- **파일 분리 완료**:
+  ```
+  browser.go (400줄)
+    ↓
+  ├── url.go         (143줄) - URL 파싱 로직
+  ├── fetcher.go     (191줄) - Fetcher 인터페이스 및 구현
+  ├── parser.go       (35줄) - HTML 파싱 로직
+  └── browser.go      (43줄) - main() 및 load() 함수만
+  ```
+
+- **테스트 파일 분리 완료**:
+  ```
+  browser_test.go (776줄)
+    ↓
+  ├── parser_test.go  (68줄)  - parseHTML 테스트 (5개)
+  ├── url_test.go    (397줄)  - URL 관련 테스트 (20개)
+  └── fetcher_test.go (343줄) - Fetcher 테스트 (15개)
+  ```
+
+- **Symlink 구조 확립**:
+  - `llm/` 디렉토리에서 루트 테스트 파일을 symlink로 참조
+  - `llm/testdata/` → `../testdata` (기존)
+  - `llm/parser_test.go` → `../parser_test.go` (신규)
+  - `llm/url_test.go` → `../url_test.go` (신규)
+  - `llm/fetcher_test.go` → `../fetcher_test.go` (신규)
+
+#### Go 패키지 구조 학습
+- **같은 패키지, 여러 파일**:
+  - 모든 파일이 `package main`
+  - 파일 간 import 불필요
+  - 빌드 시 모든 .go 파일 자동 포함
+  - 네임스페이스 충돌 없음
+
+- **파일 분리 기준**:
+  - 기능별 분리 (Feature-based)
+  - 각 파일이 명확한 책임 영역
+  - 테스트 파일도 동일한 기준으로 분리
+
+#### 설계 결정
+- **Option 1 선택**: Feature-based 파일 분리
+  - 장점: 관련 기능이 한 곳에 모임
+  - 장점: 확장성 좋음 (새 기능 추가 시 새 파일 생성)
+  - 장점: 학습 프로젝트에 적합 (개념별 분리)
+
+- **대안 (보류)**:
+  - Option 2: Fetcher별 파일 분리 (너무 세분화)
+  - Option 3: 패키지 분리 (현재 규모에 과함)
+
+#### 최종 테스트 현황
+- **총 40개 테스트** (39 pass, 1 skip)
+  - parseHTML: 5개
+  - NewURL: 8개
+  - parsePort: 6개
+  - parseHostPath: 6개
+  - FileFetcher: 4개
+  - DataFetcher: 6개
+  - HTTPFetcher: 5개

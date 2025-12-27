@@ -1,0 +1,190 @@
+package main
+
+import (
+	"bufio"
+	"crypto/tls"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"net"
+	"net/url"
+	"os"
+	"strings"
+)
+
+// HTTP 관련 상수
+const (
+	HTTPVersion = "HTTP/1.1"
+	UserAgent   = "GoWebBrowser/1.0"
+)
+
+// HTTP 헤더 이름
+const (
+	HeaderHost       = "Host"
+	HeaderConnection = "Connection"
+	HeaderUserAgent  = "User-Agent"
+)
+
+// ConnectionClose HTTP 헤더 값
+const (
+	ConnectionClose = "close"
+)
+
+// Fetcher 인터페이스: URL에서 콘텐츠를 가져오는 역할을 추상화
+type Fetcher interface {
+	Fetch(u *URL) (string, error)
+}
+
+// FileFetcher: file:// 스킴을 처리하는 Fetcher 구현
+type FileFetcher struct{}
+
+// DataFetcher: data:// 스킴을 처리하는 Fetcher 구현
+type DataFetcher struct{}
+
+// HTTPFetcher: http://, https:// 스킴을 처리하는 Fetcher 구현
+type HTTPFetcher struct{}
+
+// fetcherRegistry: scheme에 따른 Fetcher를 등록하는 레지스트리
+var fetcherRegistry = map[string]Fetcher{
+	SchemeFile:  &FileFetcher{},
+	SchemeData:  &DataFetcher{},
+	SchemeHTTP:  &HTTPFetcher{},
+	SchemeHTTPS: &HTTPFetcher{},
+}
+
+// Request: URL에서 콘텐츠를 가져오는 메서드
+func (u *URL) Request() (string, error) {
+	fetcher, ok := fetcherRegistry[u.Scheme]
+	if !ok {
+		return "", fmt.Errorf("지원하지 않는 프로토콜: %s", u.Scheme)
+	}
+	return fetcher.Fetch(u)
+}
+
+// Fetch: FileFetcher의 Fetch 메서드 구현
+func (f *FileFetcher) Fetch(u *URL) (string, error) {
+	filePath := u.Path
+
+	// Windows 절대 경로 처리: /C:/path → C:/path
+	if len(filePath) > 2 && filePath[0] == '/' && filePath[2] == ':' {
+		filePath = filePath[1:]
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("파일 읽기 실패: %v", err)
+	}
+
+	fmt.Printf("--- 파일 %s 읽기 완료 ---\n", filePath)
+	return string(content), nil
+}
+
+// Fetch: DataFetcher의 Fetch 메서드 구현
+func (d *DataFetcher) Fetch(u *URL) (string, error) {
+	dataStr := u.Path
+
+	commaIdx := strings.Index(dataStr, ",")
+	if commaIdx == -1 {
+		return "", fmt.Errorf("data 스킴 형식이 잘못되었습니다 (쉼표 없음)")
+	}
+
+	metadata := dataStr[:commaIdx]
+	data := dataStr[commaIdx+1:]
+
+	if strings.Contains(metadata, ";base64") {
+		decoded, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			return "", fmt.Errorf("base64 디코딩 실패: %v", err)
+		}
+		data = string(decoded)
+		fmt.Printf("--- [data] base64 디코딩 완료 ---\n")
+	} else {
+		decoded, err := url.QueryUnescape(data)
+		if err != nil {
+			decoded = data
+		}
+		data = decoded
+		fmt.Println("--- [data] URL 파싱 완료 ---")
+	}
+
+	return data, nil
+}
+
+// Fetch: HTTPFetcher의 Fetch 메서드 구현
+func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
+	var conn net.Conn
+	var err error
+
+	address := fmt.Sprintf("%s:%d", u.Host, u.Port)
+
+	if u.Scheme == SchemeHTTPS {
+		conn, err = tls.Dial("tcp", address, nil)
+	} else {
+		conn, err = net.Dial("tcp", address)
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			fmt.Printf("연결 종료 에러: %v\n", closeErr)
+		}
+	}()
+
+	// HTTP 요청 메시지 만들기
+	headers := map[string]string{
+		HeaderHost:       u.Host,
+		HeaderConnection: ConnectionClose,
+		HeaderUserAgent:  UserAgent,
+	}
+
+	requestLine := fmt.Sprintf("GET %s %s\r\n", u.Path, HTTPVersion)
+
+	var headerLines strings.Builder
+	headerLines.WriteString(requestLine)
+	for key, value := range headers {
+		headerLines.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
+	}
+
+	headerLines.WriteString("\r\n")
+
+	request := headerLines.String()
+
+	// 서버에 메시지 보내기
+	_, err = conn.Write([]byte(request))
+	if err != nil {
+		return "", err
+	}
+
+	// 서버의 대답(응답) 읽기
+	fmt.Printf("--- [%s:%d] 연결 및 요청 완료 ---\n", u.Host, u.Port)
+
+	reader := bufio.NewReader(conn)
+
+	// Status Line 읽기
+	_, err = reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+
+	// Headers 건너뛰기
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+
+	// Body 읽기
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+
+	return string(bodyBytes), nil
+}
