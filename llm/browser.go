@@ -16,58 +16,58 @@ import (
 
 // 프로토콜 스킴 상수
 const (
-	SchemeHTTP_llm  = "http"
-	SchemeHTTPS_llm = "https"
-	SchemeFile_llm  = "file"
-	SchemeData_llm  = "data"
+	SchemeHTTP  = "http"
+	SchemeHTTPS = "https"
+	SchemeFile  = "file"
+	SchemeData  = "data"
 )
 
 // 기본 포트 번호
 const (
-	DefaultHTTPPort_llm  = 80
-	DefaultHTTPSPort_llm = 443
+	DefaultHTTPPort  = 80
+	DefaultHTTPSPort = 443
 )
 
 // HTTP 관련 상수
 const (
-	HTTPVersion_llm = "HTTP/1.1"
-	UserAgent_llm   = "GoWebBrowser/1.0"
+	HTTPVersion = "HTTP/1.1"
+	UserAgent   = "GoWebBrowser/1.0"
 )
 
 // HTTP 헤더 이름
 const (
-	HeaderHost_llm       = "Host"
-	HeaderConnection_llm = "Connection"
-	HeaderUserAgent_llm  = "User-Agent"
+	HeaderHost       = "Host"
+	HeaderConnection = "Connection"
+	HeaderUserAgent  = "User-Agent"
 )
 
 // HTTP 헤더 값
 const (
-	ConnectionClose_llm = "close"
+	ConnectionClose = "close"
 )
 
 // URL 구분자
 const (
-	SchemeDelimiter_llm = "://"
-	PathDelimiter_llm   = "/"
-	PortDelimiter_llm   = ":"
+	SchemeDelimiter = "://"
+	PathDelimiter   = "/"
+	PortDelimiter   = ":"
 )
 
-// URL_llm 구조체: 주소 정보를 담는 바구니입니다.
-type URL_llm struct {
+// URL 구조체: 주소 정보를 담는 바구니입니다.
+type URL struct {
 	Scheme string // http 같은 프로토콜
 	Host   string // 주소 (example.com)
 	Port   int    // 포트 번호 (80, 443 등)
 	Path   string // 경로 (/index.html)
 }
 
-// NewURL_llm: 주소 문자열을 분석해서 URL_llm 구조체를 만들어주는 함수입니다.
-func NewURL_llm(urlStr string) (*URL_llm, error) {
+// NewURL: 주소 문자열을 분석해서 URL 구조체를 만들어주는 함수입니다.
+func NewURL(urlStr string) (*URL, error) {
 	// data 스킴은 특별하게 처리 (data:text/html,... 형식으로 :// 없음)
-	if strings.HasPrefix(urlStr, SchemeData_llm+PortDelimiter_llm) {
+	if strings.HasPrefix(urlStr, SchemeData+PortDelimiter) {
 		// data: 이후 전체를 path로 저장
-		return &URL_llm{
-			Scheme: SchemeData_llm,
+		return &URL{
+			Scheme: SchemeData,
 			Host:   "",
 			Port:   0,
 			Path:   urlStr[5:], // "data:" 이후 부분
@@ -75,14 +75,14 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 	}
 
 	// 1. "://"를 기준으로 프로토콜(Scheme)을 분리합니다.
-	parts := strings.SplitN(urlStr, SchemeDelimiter_llm, 2)
+	parts := strings.SplitN(urlStr, SchemeDelimiter, 2)
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("주소 형식이 잘못되었습니다 (:// 없음)")
 	}
 	scheme := parts[0]
 
 	// http, https, file 스킴 지원
-	if scheme != SchemeHTTP_llm && scheme != SchemeHTTPS_llm && scheme != SchemeFile_llm {
+	if scheme != SchemeHTTP && scheme != SchemeHTTPS && scheme != SchemeFile {
 		return nil, fmt.Errorf("http, https 또는 file 프로토콜만 지원합니다")
 	}
 
@@ -91,7 +91,7 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 	var host, path string
 	var port int
 
-	if scheme == SchemeFile_llm {
+	if scheme == SchemeFile {
 		// file:// 스킴의 경우
 		// file:///C:/path/to/file → rest = "/C:/path/to/file"
 		// file:///home/user/file → rest = "/home/user/file"
@@ -107,18 +107,18 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 		path = rest
 	} else {
 		// http, https 스킴의 경우
-		if strings.Contains(rest, PathDelimiter_llm) {
-			hostPath := strings.SplitN(rest, PathDelimiter_llm, 2)
+		if strings.Contains(rest, PathDelimiter) {
+			hostPath := strings.SplitN(rest, PathDelimiter, 2)
 			host = hostPath[0]
-			path = PathDelimiter_llm + hostPath[1]
+			path = PathDelimiter + hostPath[1]
 		} else {
 			host = rest
-			path = PathDelimiter_llm
+			path = PathDelimiter
 		}
 
 		// 3. 포트 번호 파싱
-		if strings.Contains(host, PortDelimiter_llm) {
-			hostPort := strings.SplitN(host, PortDelimiter_llm, 2)
+		if strings.Contains(host, PortDelimiter) {
+			hostPort := strings.SplitN(host, PortDelimiter, 2)
 			host = hostPort[0]
 
 			var err error
@@ -128,16 +128,16 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 			}
 		} else {
 			// 포트가 명시되지 않은 경우 기본 포트 사용
-			if scheme == SchemeHTTPS_llm {
-				port = DefaultHTTPSPort_llm
+			if scheme == SchemeHTTPS {
+				port = DefaultHTTPSPort
 			} else {
-				port = DefaultHTTPPort_llm
+				port = DefaultHTTPPort
 			}
 		}
 	}
 
 	// 4. 완성된 결과물을 돌려줍니다.
-	return &URL_llm{
+	return &URL{
 		Scheme: scheme,
 		Host:   host,
 		Port:   port,
@@ -145,15 +145,15 @@ func NewURL_llm(urlStr string) (*URL_llm, error) {
 	}, nil
 }
 
-// Request_llm: 실제로 서버에 연결해서 데이터를 가져오거나 파일을 읽는 메서드입니다.
-func (u *URL_llm) Request_llm() (string, error) {
+// Request: 실제로 서버에 연결해서 데이터를 가져오거나 파일을 읽는 메서드입니다.
+func (u *URL) Request() (string, error) {
 	// file:// 스킴의 경우 로컬 파일 읽기
-	if u.Scheme == SchemeFile_llm {
+	if u.Scheme == SchemeFile {
 		return u.requestFile()
 	}
 
 	// data:// 스킴의 경우 URL에 담긴 데이터 직접 파싱
-	if u.Scheme == SchemeData_llm {
+	if u.Scheme == SchemeData {
 		return u.requestData()
 	}
 
@@ -162,7 +162,7 @@ func (u *URL_llm) Request_llm() (string, error) {
 }
 
 // requestFile: 로컬 파일을 읽는 헬퍼 메서드
-func (u *URL_llm) requestFile() (string, error) {
+func (u *URL) requestFile() (string, error) {
 	filePath := u.Path
 
 	// Windows 절대 경로 처리: /C:/path → C:/path
@@ -185,7 +185,7 @@ func (u *URL_llm) requestFile() (string, error) {
 // data 스킴 형식: data:[<mediatype>][;base64],<data>
 // 예: data:text/html,<h1>Hello</h1>
 // 예: data:text/html;base64,PGgxPkhlbGxvPC9oMT4=
-func (u *URL_llm) requestData() (string, error) {
+func (u *URL) requestData() (string, error) {
 	dataStr := u.Path
 
 	// ","를 기준으로 메타데이터와 실제 데이터를 분리
@@ -221,7 +221,7 @@ func (u *URL_llm) requestData() (string, error) {
 }
 
 // requestHTTP: HTTP/HTTPS 요청을 수행하는 헬퍼 메서드
-func (u *URL_llm) requestHTTP() (string, error) {
+func (u *URL) requestHTTP() (string, error) {
 	// 1. 서버에 연결하기
 	var conn net.Conn
 	var err error
@@ -229,7 +229,7 @@ func (u *URL_llm) requestHTTP() (string, error) {
 	// Port 필드를 사용하여 주소 구성
 	address := fmt.Sprintf("%s:%d", u.Host, u.Port)
 
-	if u.Scheme == SchemeHTTPS_llm {
+	if u.Scheme == SchemeHTTPS {
 		// HTTPS: TLS 암호화 연결
 		conn, err = tls.Dial("tcp", address, nil)
 	} else {
@@ -253,13 +253,13 @@ func (u *URL_llm) requestHTTP() (string, error) {
 	// 2. HTTP 요청 메시지 만들기
 	// HTTP/1.1 사용 및 헤더를 맵으로 관리하여 확장 가능하게 구성
 	headers := map[string]string{
-		HeaderHost_llm:       u.Host,
-		HeaderConnection_llm: ConnectionClose_llm,
-		HeaderUserAgent_llm:  UserAgent_llm,
+		HeaderHost:       u.Host,
+		HeaderConnection: ConnectionClose,
+		HeaderUserAgent:  UserAgent,
 	}
 
 	// Request Line 구성: GET /path HTTP/1.1
-	requestLine := fmt.Sprintf("GET %s %s\r\n", u.Path, HTTPVersion_llm)
+	requestLine := fmt.Sprintf("GET %s %s\r\n", u.Path, HTTPVersion)
 
 	// 헤더들을 문자열로 조합
 	var headerLines strings.Builder
@@ -309,8 +309,9 @@ func (u *URL_llm) requestHTTP() (string, error) {
 	return string(bodyBytes), nil
 }
 
-// show_llm: HTML 태그를 제거하고 텍스트만 출력하는 함수
+// parseHTML: HTML 태그를 제거하고 텍스트만 추출하는 순수 함수
 // 태그를 제거한 후 HTML 엔티티(&lt;, &gt; 등)를 실제 문자로 변환합니다.
+// 이 함수는 출력하지 않고 결과 문자열을 반환하므로 테스트가 가능합니다.
 //
 // 파이썬 원본:
 // def show(body):
@@ -323,7 +324,7 @@ func (u *URL_llm) requestHTTP() (string, error) {
 //	        in_tag = False
 //	    elif not in_tag:
 //	        print(c, end="")
-func show_llm(body string) {
+func parseHTML(body string) string {
 	// 1. 태그를 제거하고 텍스트만 추출
 	inTag := false
 	var textBuilder strings.Builder
@@ -345,11 +346,17 @@ func show_llm(body string) {
 	// 예: &lt;div&gt; → <div>
 	text := html.UnescapeString(textBuilder.String())
 
-	// 3. 변환된 텍스트 출력
-	fmt.Print(text)
+	// 3. 변환된 텍스트 반환 (출력하지 않음)
+	return text
 }
 
-// load_llm: URL 객체를 받아서 요청하고 화면에 표시하는 통합 함수
+// show: HTML을 파싱하고 결과를 출력하는 함수
+// parseHTML 함수를 호출해서 결과를 화면에 출력합니다.
+func show(body string) {
+	fmt.Print(parseHTML(body))
+}
+
+// load: URL 객체를 받아서 요청하고 화면에 표시하는 통합 함수
 // 파이썬의 load 함수를 Go로 변환한 버전입니다.
 //
 // 파이썬 원본:
@@ -357,16 +364,16 @@ func show_llm(body string) {
 //
 //	body = url.request()
 //	show(body)
-func load_llm(urlObj *URL_llm) {
-	// 1. URL 객체의 Request_llm 메서드 호출해서 HTML 가져오기
-	body, err := urlObj.Request_llm()
+func load(urlObj *URL) {
+	// 1. URL 객체의 Request 메서드 호출해서 HTML 가져오기
+	body, err := urlObj.Request()
 	if err != nil {
 		fmt.Println("요청 에러:", err)
 		return
 	}
 
-	// 2. show_llm 함수로 HTML 태그 제거하고 텍스트만 출력
-	show_llm(body)
+	// 2. show 함수로 HTML 태그 제거하고 텍스트만 출력
+	show(body)
 }
 
 func main() {
@@ -374,7 +381,7 @@ func main() {
 
 	// 인자가 없으면 테스트 모드로 실행
 	if len(os.Args) < 2 {
-		fmt.Println("=== HTML 엔티티 테스트 모드 ===\n")
+		fmt.Println("=== HTML 엔티티 테스트 모드 ===")
 
 		// 테스트할 data URL 목록
 		testURLs := []string{
@@ -391,14 +398,14 @@ func main() {
 		for i, testURL := range testURLs {
 			fmt.Printf("테스트 %d: %s\n", i+1, testURL)
 
-			urlObj, err := NewURL_llm(testURL)
+			urlObj, err := NewURL(testURL)
 			if err != nil {
 				fmt.Println("분석 에러:", err)
 				fmt.Println()
 				continue
 			}
 
-			body, err := urlObj.Request_llm()
+			body, err := urlObj.Request()
 			if err != nil {
 				fmt.Println("요청 에러:", err)
 				fmt.Println()
@@ -406,8 +413,8 @@ func main() {
 			}
 
 			fmt.Print("결과: ")
-			show_llm(body)
-			fmt.Println("\n")
+			show(body)
+			fmt.Println()
 		}
 		return
 	} else {
@@ -416,11 +423,11 @@ func main() {
 	}
 
 	// URL 파싱 및 로드
-	urlObj, err := NewURL_llm(urlStr)
+	urlObj, err := NewURL(urlStr)
 	if err != nil {
 		fmt.Println("분석 에러:", err)
 		return
 	}
 
-	load_llm(urlObj)
+	load(urlObj)
 }

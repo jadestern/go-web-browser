@@ -270,7 +270,8 @@ func (u *URL) requestHTTP() (string, error) {
 	return string(bodyBytes), nil
 }
 
-func show(body string) {
+func parseHTML(body string) string {
+	// 태그를 제거하고 텍스트만 추출
 	inTag := false
 	var textBuilder strings.Builder
 
@@ -287,7 +288,11 @@ func show(body string) {
 
 	text := html.UnescapeString(textBuilder.String())
 
-	fmt.Print(text)
+	return text
+}
+
+func show(body string) {
+	fmt.Print(parseHTML(body))
 }
 
 func load(urlStr string) {
