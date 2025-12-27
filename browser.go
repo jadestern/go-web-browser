@@ -53,12 +53,56 @@ const (
 	PortDelimiter   = ":"
 )
 
+type Fetcher interface {
+	Fetch(u *URL) (string, error)
+}
+
 // URL 구조체: 주소 정보를 담는 바구니입니다.
 type URL struct {
 	Scheme string // http 같은 프로토콜
 	Host   string // 주소 (example.com)
 	Port   int
 	Path   string // 경로 (/index.html)
+}
+
+func parsePort(scheme, host string) (cleanHost string, port int, err error) {
+	if scheme == SchemeFile {
+		return host, 0, nil
+	}
+
+	if strings.Contains(host, PortDelimiter) {
+		parts := strings.SplitN(host, PortDelimiter, 2)
+		cleanHost = parts[0]
+
+		port, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return "", 0, fmt.Errorf("포트 번호가 올바르지 않습니다: %s", parts[1])
+		}
+		return cleanHost, port, nil
+	}
+
+	if scheme == SchemeHTTPS {
+		return host, DefaultHTTPSPort, nil
+	}
+
+	return host, DefaultHTTPPort, nil
+}
+
+func parseHostPath(scheme, rest string) (host, path string) {
+	// file 스킴: rest 전체가 경로
+	if scheme == SchemeFile {
+		return "", rest
+	}
+
+	// http/https 스킴: "/" 기준으로 host와 path 분리
+	if strings.Contains(rest, PathDelimiter) {
+		// "example.com/index.html" → host="example.com", path="/index.html"
+		parts := strings.SplitN(rest, PathDelimiter, 2)
+		return parts[0], PathDelimiter + parts[1]
+	}
+
+	// 경로가 없는 경우: "example.com" → host="example.com", path="/"
+	return rest, PathDelimiter
 }
 
 // NewURL NewURL: 주소 문자열을 분석해서 URL 구조체를 만들어주는 함수입니다.
@@ -84,46 +128,15 @@ func NewURL(urlStr string) (*URL, error) {
 	}
 
 	rest := parts[1]
-	var host, path string
+	host, path := parseHostPath(scheme, rest)
+
 	var port int
-
-	if scheme == SchemeFile {
-		host = ""
-		port = 0
-
-		path = rest
-	} else {
-		// 슬래시(/)가 포함되어 있는지 확인합니다.
-		if strings.Contains(rest, PathDelimiter) {
-			// naver.com/search 같은 경우 "/" 기준으로 나눕니다.
-			hostPath := strings.SplitN(rest, PathDelimiter, 2)
-			host = hostPath[0]
-			path = PathDelimiter + hostPath[1]
-		} else {
-			// naver.com 처럼 슬래시가 없는 경우 전체가 호스트이고 경로는 "/"입니다.
-			host = rest
-			path = PathDelimiter
-		}
+	var err error
+	host, port, err = parsePort(scheme, host)
+	if err != nil {
+		return nil, err
 	}
 
-	if strings.Contains(host, PortDelimiter) {
-		hostPort := strings.SplitN(host, PortDelimiter, 2)
-		host = hostPort[0]
-
-		var err error
-		port, err = strconv.Atoi(hostPort[1])
-		if err != nil {
-			return nil, fmt.Errorf("포트 번호가 올바르지 않습니다: %s", hostPort[1])
-		}
-	} else {
-		if scheme == SchemeHTTPS {
-			port = DefaultHTTPSPort
-		} else {
-			port = DefaultHTTPPort
-		}
-	}
-
-	// 3. 완성된 결과물을 돌려줍니다.
 	return &URL{
 		Scheme: scheme,
 		Host:   host,
@@ -132,25 +145,48 @@ func NewURL(urlStr string) (*URL, error) {
 	}, nil
 }
 
-// Request Request: 실제로 서버에 연결해서 데이터를 가져오는 메서드입니다.
-func (u *URL) Request() (string, error) {
-	if u.Scheme == SchemeFile {
-		return u.requestFile()
-	}
+type FileFetcher struct{}
+type DataFetcher struct{}
+type HTTPFetcher struct{}
 
-	if u.Scheme == SchemeData {
-		return u.requestData()
-	}
-
-	return u.requestHTTP()
+var fetcherRegistry = map[string]Fetcher{
+	SchemeFile:  &FileFetcher{},
+	SchemeData:  &DataFetcher{},
+	SchemeHTTP:  &HTTPFetcher{},
+	SchemeHTTPS: &HTTPFetcher{},
 }
 
-func (u *URL) requestData() (string, error) {
+// Request Request: 실제로 서버에 연결해서 데이터를 가져오는 메서드입니다.
+func (u *URL) Request() (string, error) {
+	fetcher, ok := fetcherRegistry[u.Scheme]
+	if !ok {
+		return "", fmt.Errorf("지원하지 않는 프로토콜: %s", u.Scheme)
+	}
+	return fetcher.Fetch(u)
+}
+
+func (f *FileFetcher) Fetch(u *URL) (string, error) {
+	filePath := u.Path
+
+	if len(filePath) > 2 && filePath[0] == '/' && filePath[2] == ':' {
+		filePath = filePath[1:]
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("파일 읽기 실패: %v", err)
+	}
+
+	fmt.Printf("--- 파일 %s 읽기 완료 ---\n", filePath)
+	return string(content), nil
+}
+
+func (d *DataFetcher) Fetch(u *URL) (string, error) {
 	dataStr := u.Path
 
 	commaIdx := strings.Index(dataStr, ",")
 	if commaIdx == -1 {
-		return "", fmt.Errorf("data 스킴 형식이 잘못되었습니다 (쉼표 없음")
+		return "", fmt.Errorf("data 스킴 형식이 잘못되었습니다 (쉼표 없음)")
 	}
 
 	metadata := dataStr[:commaIdx]
@@ -175,23 +211,7 @@ func (u *URL) requestData() (string, error) {
 	return data, nil
 }
 
-func (u *URL) requestFile() (string, error) {
-	filePath := u.Path
-
-	if len(filePath) > 2 && filePath[0] == '/' && filePath[2] == ':' {
-		filePath = filePath[1:]
-	}
-
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("파일 읽기 실패: %v", err)
-	}
-
-	fmt.Printf("--- 파일 %s 읽기 완료 ---\n", filePath)
-	return string(content), nil
-}
-
-func (u *URL) requestHTTP() (string, error) {
+func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	var conn net.Conn
 	var err error
 

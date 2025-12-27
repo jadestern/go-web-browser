@@ -186,8 +186,57 @@
 - ⬜ **채널 (Channels)**: 고루틴 간 통신
 - ⬜ **동기화**: Mutex, WaitGroup
 
-### 6.8 고급 기능
-- ⬜ **인터페이스**: 다형성 구현
+### 6.8 테스팅
+- **✅ 단위 테스트 (Unit Testing)**: 개별 함수 테스트
+  - [browser_test.go:5-63](browser_test.go:5) - parseHTML 테스트
+  - [browser_test.go:69-224](browser_test.go:69) - NewURL 테스트
+  - [browser_test.go:230-335](browser_test.go:230) - parsePort 테스트
+  - [browser_test.go:341-429](browser_test.go:341) - parseHostPath 테스트
+- **✅ 테스트 함수 작성**: `func TestXxx(t *testing.T)`
+  - `t.Errorf()`: 테스트 실패 보고
+  - `t.Fatalf()`: 치명적 에러로 즉시 종료
+- **✅ 테스트 실행**: `go test -v`
+
+**주요 개념**:
+- 테스트 파일: `_test.go` 접미사
+- 테스트 함수 네이밍: `Test` + 함수명 + `_` + 시나리오
+- AAA 패턴: Arrange(준비), Act(실행), Assert(검증)
+- 에러 케이스 테스트: 잘못된 입력 검증
+
+### 6.9 인터페이스와 다형성
+- **✅ 인터페이스 정의**: `type Fetcher interface` ([browser.go:56-58](browser.go:56))
+  - 메서드 시그니처만 선언: `Fetch(u *URL) (string, error)`
+- **✅ 인터페이스 구현**: 구조체에 메서드 추가
+  - `FileFetcher`: file:// 프로토콜 처리 ([browser.go:159-173](browser.go:159))
+  - `DataFetcher`: data:// 프로토콜 처리 ([browser.go:175-203](browser.go:175))
+  - `HTTPFetcher`: http://, https:// 프로토콜 처리 ([browser.go:205-282](browser.go:205))
+- **✅ Registry 패턴**: map으로 구현체 관리
+  - `fetcherRegistry`: scheme별 Fetcher 등록 ([browser.go:143-148](browser.go:143))
+  - 동적 디스패치: scheme에 따라 적절한 Fetcher 선택
+- **✅ 개방-폐쇄 원칙 (OCP)**: 새 프로토콜 추가 시 기존 코드 수정 불필요
+
+**주요 개념**:
+- 암묵적 인터페이스 구현 (implicit interface)
+- 덕 타이핑 (duck typing): "Fetch 메서드가 있으면 Fetcher"
+- 다형성: 모든 Fetcher를 동일하게 취급
+
+### 6.10 함수 리팩토링과 순수 함수
+- **✅ 순수 함수 설계**: 부작용 없는 함수
+  - `parsePort()`: scheme/host → cleanHost/port/error ([browser.go:142-178](browser.go:142))
+  - `parseHostPath()`: scheme/rest → host/path ([browser.go:180-201](browser.go:180))
+  - `parseHTML()`: HTML → 텍스트 ([browser.go:284-303](browser.go:284))
+- **✅ 함수 분해**: 큰 함수를 작은 함수로 분리
+  - NewURL: 60줄 → 30줄 (50% 감소)
+  - 중첩 if문 제거: 3단계 → 1단계
+- **✅ 단일 책임 원칙 (SRP)**: 함수가 한 가지만 수행
+
+**주요 개념**:
+- 순수 함수: 같은 입력 → 같은 출력, 부작용 없음
+- 함수 시그니처 설계: 명확한 입력/출력
+- 명명된 반환값: `(cleanHost string, port int, err error)`
+- 테스트 가능성: 순수 함수는 테스트하기 쉬움
+
+### 6.11 고급 기능
 - ⬜ **제네릭**: 타입 파라미터
 - ⬜ **리플렉션**: 런타임 타입 검사
 
@@ -438,3 +487,88 @@
 - Request 메서드에 옵션 파라미터
 - 헤더 추가 메서드 (AddHeader)
 - 빌더 패턴 (WithHeader)
+
+---
+
+### 2025-12-27: 인터페이스 리팩토링 및 테스트 작성
+
+#### Fetcher 인터페이스 도입
+- **인터페이스 기반 리팩토링** ([browser.go:56-58](browser.go:56))
+  - `Fetcher` 인터페이스: 모든 프로토콜 통합
+  - `FileFetcher`, `DataFetcher`, `HTTPFetcher` 구현
+  - Registry 패턴으로 scheme별 Fetcher 관리 ([browser.go:143-148](browser.go:143))
+- **개방-폐쇄 원칙 적용**:
+  - 새 프로토콜 추가 시 `fetcherRegistry`에만 등록
+  - 기존 코드 수정 불필요
+  - 테스트 시 Mock Fetcher 쉽게 작성 가능
+
+#### 종합 테스트 작성
+**총 25개 테스트 작성 (모두 통과 ✅)**
+
+1. **NewURL 테스트** ([browser_test.go:69-224](browser_test.go:69))
+   - HTTP/HTTPS 기본/커스텀 포트
+   - File URL (Windows 경로)
+   - Data URL
+   - 에러 케이스 (잘못된 scheme, 누락된 scheme)
+
+2. **parsePort 테스트** ([browser_test.go:230-335](browser_test.go:230))
+   - scheme별 기본 포트 (HTTP:80, HTTPS:443)
+   - 커스텀 포트 파싱
+   - file 스킴 (포트 없음)
+   - 잘못된 포트 번호 에러 처리
+
+3. **parseHostPath 테스트** ([browser_test.go:341-429](browser_test.go:341))
+   - HTTP/HTTPS host/path 분리
+   - 경로 없는 URL (기본 "/")
+   - 포트 포함 URL
+   - file 스킴 절대/상대 경로
+
+#### 함수 리팩토링
+- **parsePort 함수 분리** ([browser.go:142-178](browser.go:142))
+  - 포트 파싱 로직을 순수 함수로 추출
+  - file 스킴 버그 수정 (포트가 80이 아닌 0으로 설정)
+  - 명명된 반환값으로 가독성 향상
+
+- **parseHostPath 함수 분리** ([browser.go:180-201](browser.go:180))
+  - host/path 파싱 로직을 순수 함수로 추출
+  - scheme별 분기 로직 캡슐화
+  - NewURL 함수 60줄 → 30줄 (50% 감소)
+
+- **NewURL 간소화**:
+  - Before: 3단계 중첩 if문, 약 60줄
+  - After: 명확한 5단계 처리, 약 30줄
+  ```go
+  1. data 스킴 특별 처리
+  2. scheme 파싱 및 검증
+  3. host/path 분리 ← parseHostPath()
+  4. 포트 파싱 ← parsePort()
+  5. URL 생성 및 반환
+  ```
+
+#### Go 언어 개념 학습
+- **인터페이스와 다형성**:
+  - 암묵적 인터페이스 구현 (no `implements` keyword)
+  - 덕 타이핑: 메서드 시그니처만 일치하면 구현
+  - 인터페이스 변수에 구현체 할당
+
+- **테스트 작성**:
+  - `testing` 패키지 사용
+  - `t.Errorf()` vs `t.Fatalf()` 차이
+  - AAA 패턴 (Arrange-Act-Assert)
+  - 테스트 네이밍 컨벤션
+
+- **순수 함수 설계**:
+  - 부작용 없는 함수
+  - 테스트 가능성 극대화
+  - 명명된 반환값으로 명확성 향상
+
+#### 설계 원칙 적용
+- **단일 책임 원칙 (SRP)**: 각 함수가 한 가지만 수행
+- **개방-폐쇄 원칙 (OCP)**: 확장에 열려있고 수정에 닫혀있음
+- **의존성 역전 원칙 (DIP)**: 구체적 구현이 아닌 인터페이스에 의존
+
+#### 버그 수정
+- **file 스킴 포트 버그**: 테스트를 통해 발견
+  - 문제: file URL의 포트가 0이 아닌 80으로 설정됨
+  - 원인: 포트 파싱 로직에서 file 스킴 제외하지 않음
+  - 해결: parsePort에서 file 스킴 early return

@@ -41,7 +41,7 @@ const (
 	HeaderUserAgent  = "User-Agent"
 )
 
-// HTTP 헤더 값
+// ConnectionClose HTTP 헤더 값
 const (
 	ConnectionClose = "close"
 )
@@ -53,87 +53,51 @@ const (
 	PortDelimiter   = ":"
 )
 
+type Fetcher interface {
+	Fetch(u *URL) (string, error)
+}
+
 // URL 구조체: 주소 정보를 담는 바구니입니다.
 type URL struct {
 	Scheme string // http 같은 프로토콜
 	Host   string // 주소 (example.com)
-	Port   int    // 포트 번호 (80, 443 등)
+	Port   int
 	Path   string // 경로 (/index.html)
 }
 
-// NewURL: 주소 문자열을 분석해서 URL 구조체를 만들어주는 함수입니다.
+// NewURL NewURL: 주소 문자열을 분석해서 URL 구조체를 만들어주는 함수입니다.
 func NewURL(urlStr string) (*URL, error) {
-	// data 스킴은 특별하게 처리 (data:text/html,... 형식으로 :// 없음)
 	if strings.HasPrefix(urlStr, SchemeData+PortDelimiter) {
-		// data: 이후 전체를 path로 저장
 		return &URL{
 			Scheme: SchemeData,
 			Host:   "",
 			Port:   0,
-			Path:   urlStr[5:], // "data:" 이후 부분
+			Path:   urlStr[5:],
 		}, nil
 	}
-
 	// 1. "://"를 기준으로 프로토콜(Scheme)을 분리합니다.
+	// SplitN(문자열, 구분자, 개수) -> 최대 2개로 나눕니다.
 	parts := strings.SplitN(urlStr, SchemeDelimiter, 2)
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("주소 형식이 잘못되었습니다 (:// 없음)")
 	}
 	scheme := parts[0]
 
-	// http, https, file 스킴 지원
 	if scheme != SchemeHTTP && scheme != SchemeHTTPS && scheme != SchemeFile {
-		return nil, fmt.Errorf("http, https 또는 file 프로토콜만 지원합니다")
+		return nil, fmt.Errorf("http, https, file 또는 data 프로토콜만 지원합니다")
 	}
 
-	// 2. 스킴에 따라 다르게 파싱
 	rest := parts[1]
-	var host, path string
+
+	// 2. host와 path 분리
+	host, path := parseHostPath(scheme, rest)
+
+	// 3. 포트 파싱
 	var port int
-
-	if scheme == SchemeFile {
-		// file:// 스킴의 경우
-		// file:///C:/path/to/file → rest = "/C:/path/to/file"
-		// file:///home/user/file → rest = "/home/user/file"
-		// file://./relative → rest = "./relative"
-		// file://test.html → rest = "test.html"
-
-		host = "" // file 스킴은 호스트 없음
-		port = 0  // file 스킴은 포트 없음
-
-		// 경로는 rest를 그대로 사용
-		// - 절대 경로: /C:/path 또는 /home/user/file
-		// - 상대 경로: test.html 또는 ./test.html
-		path = rest
-	} else {
-		// http, https 스킴의 경우
-		if strings.Contains(rest, PathDelimiter) {
-			hostPath := strings.SplitN(rest, PathDelimiter, 2)
-			host = hostPath[0]
-			path = PathDelimiter + hostPath[1]
-		} else {
-			host = rest
-			path = PathDelimiter
-		}
-
-		// 3. 포트 번호 파싱
-		if strings.Contains(host, PortDelimiter) {
-			hostPort := strings.SplitN(host, PortDelimiter, 2)
-			host = hostPort[0]
-
-			var err error
-			port, err = strconv.Atoi(hostPort[1])
-			if err != nil {
-				return nil, fmt.Errorf("포트 번호가 올바르지 않습니다: %s", hostPort[1])
-			}
-		} else {
-			// 포트가 명시되지 않은 경우 기본 포트 사용
-			if scheme == SchemeHTTPS {
-				port = DefaultHTTPSPort
-			} else {
-				port = DefaultHTTPPort
-			}
-		}
+	var err error
+	host, port, err = parsePort(scheme, host)
+	if err != nil {
+		return nil, err
 	}
 
 	// 4. 완성된 결과물을 돌려줍니다.
@@ -145,61 +109,116 @@ func NewURL(urlStr string) (*URL, error) {
 	}, nil
 }
 
-// Request: 실제로 서버에 연결해서 데이터를 가져오거나 파일을 읽는 메서드입니다.
-func (u *URL) Request() (string, error) {
-	// file:// 스킴의 경우 로컬 파일 읽기
-	if u.Scheme == SchemeFile {
-		return u.requestFile()
+// parsePort: scheme과 host를 받아서 포트 번호를 파싱하고 클린한 호스트를 반환합니다.
+// file 스킴의 경우 포트 파싱을 하지 않고 0을 반환합니다.
+// http/https 스킴의 경우:
+//   - host에 포트가 명시되어 있으면 파싱해서 반환
+//   - 포트가 없으면 scheme에 따라 기본 포트 반환 (http: 80, https: 443)
+//
+// 반환값:
+//   - cleanHost: 포트 번호가 제거된 호스트 이름
+//   - port: 파싱된 포트 번호 또는 기본 포트
+//   - err: 포트 파싱 실패 시 에러
+func parsePort(scheme, host string) (cleanHost string, port int, err error) {
+	// file 스킴은 포트가 없음
+	if scheme == SchemeFile {
+		return host, 0, nil
 	}
 
-	// data:// 스킴의 경우 URL에 담긴 데이터 직접 파싱
-	if u.Scheme == SchemeData {
-		return u.requestData()
+	// host에 포트가 명시되어 있는지 확인
+	if strings.Contains(host, PortDelimiter) {
+		// host:port 형식 파싱
+		parts := strings.SplitN(host, PortDelimiter, 2)
+		cleanHost = parts[0]
+
+		port, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return "", 0, fmt.Errorf("포트 번호가 올바르지 않습니다: %s", parts[1])
+		}
+
+		return cleanHost, port, nil
 	}
 
-	// http, https 스킴의 경우 네트워크 요청
-	return u.requestHTTP()
+	// 포트가 명시되지 않은 경우: scheme에 따라 기본 포트 사용
+	if scheme == SchemeHTTPS {
+		return host, DefaultHTTPSPort, nil
+	}
+
+	return host, DefaultHTTPPort, nil
 }
 
-// requestFile: 로컬 파일을 읽는 헬퍼 메서드
-func (u *URL) requestFile() (string, error) {
-	filePath := u.Path
-
-	// Windows 절대 경로 처리: /C:/path → C:/path
-	// file:///C:/Users/... 형식을 C:/Users/... 로 변환
-	if len(filePath) > 2 && filePath[0] == '/' && filePath[2] == ':' {
-		filePath = filePath[1:] // 앞의 / 제거
+// parseHostPath: scheme과 rest(스킴 이후의 문자열)를 받아서 host와 path를 분리합니다.
+// file 스킴의 경우: rest 전체를 path로 사용하고 host는 빈 문자열
+// http/https 스킴의 경우: "/" 기준으로 host와 path를 분리
+//
+// 반환값:
+//   - host: 호스트 이름 (file 스킴의 경우 빈 문자열)
+//   - path: 경로 (http/https는 "/" 시작, file은 rest 전체)
+func parseHostPath(scheme, rest string) (host, path string) {
+	// file 스킴: rest 전체가 경로
+	if scheme == SchemeFile {
+		return "", rest
 	}
 
-	// 파일 읽기
+	// http/https 스킴: "/" 기준으로 host와 path 분리
+	if strings.Contains(rest, PathDelimiter) {
+		// "example.com/index.html" → host="example.com", path="/index.html"
+		parts := strings.SplitN(rest, PathDelimiter, 2)
+		return parts[0], PathDelimiter + parts[1]
+	}
+
+	// 경로가 없는 경우: "example.com" → host="example.com", path="/"
+	return rest, PathDelimiter
+}
+
+type FileFetcher struct{}
+type DataFetcher struct{}
+type HTTPFetcher struct{}
+
+var fetcherRegistry = map[string]Fetcher{
+	SchemeFile:  &FileFetcher{},
+	SchemeData:  &DataFetcher{},
+	SchemeHTTP:  &HTTPFetcher{},
+	SchemeHTTPS: &HTTPFetcher{},
+}
+
+// Request Request: 실제로 서버에 연결해서 데이터를 가져오는 메서드입니다.
+func (u *URL) Request() (string, error) {
+	fetcher, ok := fetcherRegistry[u.Scheme]
+	if !ok {
+		return "", fmt.Errorf("지원하지 않는 프로토콜: %s", u.Scheme)
+	}
+	return fetcher.Fetch(u)
+}
+
+func (f *FileFetcher) Fetch(u *URL) (string, error) {
+	filePath := u.Path
+
+	if len(filePath) > 2 && filePath[0] == '/' && filePath[2] == ':' {
+		filePath = filePath[1:]
+	}
+
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("파일 읽기 실패: %v", err)
 	}
 
-	fmt.Printf("--- [파일] %s 읽기 완료 ---\n", filePath)
+	fmt.Printf("--- 파일 %s 읽기 완료 ---\n", filePath)
 	return string(content), nil
 }
 
-// requestData: data 스킴의 데이터를 파싱하는 헬퍼 메서드
-// data 스킴 형식: data:[<mediatype>][;base64],<data>
-// 예: data:text/html,<h1>Hello</h1>
-// 예: data:text/html;base64,PGgxPkhlbGxvPC9oMT4=
-func (u *URL) requestData() (string, error) {
+func (d *DataFetcher) Fetch(u *URL) (string, error) {
 	dataStr := u.Path
 
-	// ","를 기준으로 메타데이터와 실제 데이터를 분리
 	commaIdx := strings.Index(dataStr, ",")
 	if commaIdx == -1 {
 		return "", fmt.Errorf("data 스킴 형식이 잘못되었습니다 (쉼표 없음)")
 	}
 
-	metadata := dataStr[:commaIdx] // 예: "text/html" 또는 "text/html;base64"
-	data := dataStr[commaIdx+1:]   // 예: "<h1>Hello</h1>" 또는 base64 인코딩된 문자열
+	metadata := dataStr[:commaIdx]
+	data := dataStr[commaIdx+1:]
 
-	// base64 인코딩 확인
 	if strings.Contains(metadata, ";base64") {
-		// base64 디코딩
 		decoded, err := base64.StdEncoding.DecodeString(data)
 		if err != nil {
 			return "", fmt.Errorf("base64 디코딩 실패: %v", err)
@@ -207,33 +226,26 @@ func (u *URL) requestData() (string, error) {
 		data = string(decoded)
 		fmt.Printf("--- [data] base64 디코딩 완료 ---\n")
 	} else {
-		// URL 인코딩된 문자열 디코딩 (예: %20 → 공백)
 		decoded, err := url.QueryUnescape(data)
 		if err != nil {
-			// 디코딩 실패 시 원본 그대로 사용
 			decoded = data
 		}
 		data = decoded
-		fmt.Printf("--- [data] URL 파싱 완료 ---\n")
+		fmt.Println("--- [data] URL 파싱 완료 ---")
 	}
 
 	return data, nil
 }
 
-// requestHTTP: HTTP/HTTPS 요청을 수행하는 헬퍼 메서드
-func (u *URL) requestHTTP() (string, error) {
-	// 1. 서버에 연결하기
+func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	var conn net.Conn
 	var err error
 
-	// Port 필드를 사용하여 주소 구성
 	address := fmt.Sprintf("%s:%d", u.Host, u.Port)
 
 	if u.Scheme == SchemeHTTPS {
-		// HTTPS: TLS 암호화 연결
 		conn, err = tls.Dial("tcp", address, nil)
 	} else {
-		// HTTP: 일반 TCP 연결
 		conn, err = net.Dial("tcp", address)
 	}
 
@@ -241,33 +253,28 @@ func (u *URL) requestHTTP() (string, error) {
 		return "", err
 	}
 
-	// defer에서 Close() 에러 처리
 	defer func() {
 		if closeErr := conn.Close(); closeErr != nil {
-			// 연결 종료 에러는 일반적으로 무시해도 되지만
-			// 디버깅을 위해 출력할 수 있음
-			// fmt.Printf("연결 종료 에러: %v\n", closeErr)
+			fmt.Printf("연결 종료 에러: %v\n", closeErr)
 		}
 	}()
 
 	// 2. HTTP 요청 메시지 만들기
-	// HTTP/1.1 사용 및 헤더를 맵으로 관리하여 확장 가능하게 구성
+	// (기존 HTTP 요청 코드 그대로 유지)
 	headers := map[string]string{
 		HeaderHost:       u.Host,
 		HeaderConnection: ConnectionClose,
 		HeaderUserAgent:  UserAgent,
 	}
 
-	// Request Line 구성: GET /path HTTP/1.1
 	requestLine := fmt.Sprintf("GET %s %s\r\n", u.Path, HTTPVersion)
 
-	// 헤더들을 문자열로 조합
 	var headerLines strings.Builder
 	headerLines.WriteString(requestLine)
 	for key, value := range headers {
 		headerLines.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
 	}
-	// 헤더와 본문 사이의 빈 줄
+
 	headerLines.WriteString("\r\n")
 
 	request := headerLines.String()
@@ -283,7 +290,7 @@ func (u *URL) requestHTTP() (string, error) {
 
 	reader := bufio.NewReader(conn)
 
-	// Status Line 읽기 (첫 줄 읽어서 넘기기)
+	// Status Line 읽기
 	_, err = reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -309,32 +316,15 @@ func (u *URL) requestHTTP() (string, error) {
 	return string(bodyBytes), nil
 }
 
-// parseHTML: HTML 태그를 제거하고 텍스트만 추출하는 순수 함수
-// 태그를 제거한 후 HTML 엔티티(&lt;, &gt; 등)를 실제 문자로 변환합니다.
-// 이 함수는 출력하지 않고 결과 문자열을 반환하므로 테스트가 가능합니다.
-//
-// 파이썬 원본:
-// def show(body):
-//
-//	in_tag = False
-//	for c in body:
-//	    if c == "<":
-//	        in_tag = True
-//	    elif c == ">":
-//	        in_tag = False
-//	    elif not in_tag:
-//	        print(c, end="")
 func parseHTML(body string) string {
-	// 1. 태그를 제거하고 텍스트만 추출
+	// 태그를 제거하고 텍스트만 추출
 	inTag := false
 	var textBuilder strings.Builder
 
 	for _, c := range body {
 		if c == '<' {
-			// '<' 를 만나면 태그 시작
 			inTag = true
 		} else if c == '>' {
-			// '>' 를 만나면 태그 종료
 			inTag = false
 		} else if !inTag {
 			// 태그 안이 아닐 때만 텍스트 수집
@@ -342,92 +332,45 @@ func parseHTML(body string) string {
 		}
 	}
 
-	// 2. 추출한 텍스트의 HTML 엔티티를 실제 문자로 변환
-	// 예: &lt;div&gt; → <div>
 	text := html.UnescapeString(textBuilder.String())
 
-	// 3. 변환된 텍스트 반환 (출력하지 않음)
 	return text
 }
 
-// show: HTML을 파싱하고 결과를 출력하는 함수
-// parseHTML 함수를 호출해서 결과를 화면에 출력합니다.
 func show(body string) {
 	fmt.Print(parseHTML(body))
 }
 
-// load: URL 객체를 받아서 요청하고 화면에 표시하는 통합 함수
-// 파이썬의 load 함수를 Go로 변환한 버전입니다.
-//
-// 파이썬 원본:
-// def load(url):
-//
-//	body = url.request()
-//	show(body)
-func load(urlObj *URL) {
-	// 1. URL 객체의 Request 메서드 호출해서 HTML 가져오기
-	body, err := urlObj.Request()
+func load(urlStr string) {
+	urlObj, err := NewURL(urlStr)
 	if err != nil {
-		fmt.Println("요청 에러:", err)
+		fmt.Println("분석 에러: ", err)
 		return
 	}
 
-	// 2. show 함수로 HTML 태그 제거하고 텍스트만 출력
+	body, err := urlObj.Request()
+	if err != nil {
+		fmt.Println("요청 에러: ", err)
+		return
+	}
+
 	show(body)
 }
 
 func main() {
 	var urlStr string
 
-	// 인자가 없으면 테스트 모드로 실행
 	if len(os.Args) < 2 {
-		fmt.Println("=== HTML 엔티티 테스트 모드 ===")
-
-		// 테스트할 data URL 목록
-		testURLs := []string{
-			"data:text/html,Hello world!",
-			"data:text/html,<h1>Hello</h1>",
-			"data:text/html,<h1>안녕하세요</h1><p>data 스킴 테스트</p>",
-			"data:text/html;base64,PGgxPkhlbGxvPC9oMT4=", // <h1>Hello</h1>의 base64
-			// HTML 엔티티 테스트 케이스
-			"data:text/html,&lt;div&gt;",                           // <div> 출력되어야 함
-			"data:text/html,&lt;h1&gt;Title&lt;/h1&gt;",            // <h1>Title</h1> 출력되어야 함
-			"data:text/html,<p>&lt;code&gt;&amp;&lt;/code&gt;</p>", // <code>&</code> 출력되어야 함
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Println("현재 디렉토리를 가져올 수 없습니다: ", err)
 		}
 
-		for i, testURL := range testURLs {
-			fmt.Printf("테스트 %d: %s\n", i+1, testURL)
-
-			urlObj, err := NewURL(testURL)
-			if err != nil {
-				fmt.Println("분석 에러:", err)
-				fmt.Println()
-				continue
-			}
-
-			body, err := urlObj.Request()
-			if err != nil {
-				fmt.Println("요청 에러:", err)
-				fmt.Println()
-				continue
-			}
-
-			fmt.Print("결과: ")
-			show(body)
-			fmt.Println()
-		}
-		return
+		urlStr = fmt.Sprintf("file:///%s/index.html", strings.ReplaceAll(cwd, "\\", "/"))
+		fmt.Printf("기본 파일 열기: %s\n", urlStr)
 	} else {
-		// 커맨드 라인 인자를 URL로 사용
 		urlStr = os.Args[1]
 	}
 
-	// URL 파싱 및 로드
-	urlObj, err := NewURL(urlStr)
-	if err != nil {
-		fmt.Println("분석 에러:", err)
-		return
-	}
-
-	load(urlObj)
+	load(urlStr)
 }
