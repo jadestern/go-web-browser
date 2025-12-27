@@ -14,31 +14,43 @@ This is a hands-on learning project. Claude assists with the learning process fo
 
 ### 1. Working with LLM Files
 
-**CRITICAL: Use ONE main LLM file (`browser_llm.go`) for all work. DO NOT create multiple separate LLM files.**
+**LLM works in `llm/` directory, student works in root directory.**
 
 When exploring or adding code:
 
-- **File naming**: Work ONLY in `browser_llm.go` (the main LLM working file)
-  - DO NOT create new files like `data_llm.go`, `show_llm.go`, etc.
-  - All new features are added to the existing `browser_llm.go`
+- **Directory structure**:
+  ```
+  go-web-browser/
+    browser.go          ← Student's main file
+    browser_test.go     ← Test file (shared via symlink)
+    testdata/           ← Test data (shared via symlink)
+    llm/
+      browser.go        ← LLM working file
+      browser_test.go   → ../browser_test.go (symlink)
+      testdata/         → ../testdata (symlink)
+  ```
 
-- **Naming convention**: Add `_llm` postfix to ALL type and function names to avoid conflicts
-  - Example: `URL` → `URL_llm`, `NewURL` → `NewURL_llm`, `show` → `show_llm`
-  - This allows the LLM file to be built and tested independently in the same folder
-  - When integrating into actual files, simply remove the `_llm` postfix
+- **Naming convention**: NO `_llm` postfix needed!
+  - Use actual names: `URL`, `NewURL`, `show`, etc.
+  - `llm/` directory provides namespace separation
 
 - **Claude's workflow**:
-  1. Read `browser_llm.go` to understand current implementation
-  2. Modify `browser_llm.go` to add/change features (using `_llm` postfix)
-  3. Build: `go build browser_llm.go`
-  4. Test: `go run browser_llm.go <test-url>` or `.\browser_llm.exe <test-url>`
-  5. If successful, provide integration instructions using the **Before/After format** (see below)
+  1. Read `llm/browser.go` to understand current implementation
+  2. Modify `llm/browser.go` to add/change features
+  3. Build: `cd llm && go build browser.go`
+  4. Test: `cd llm && go run browser.go <test-url>`
+  5. Run tests: `cd llm && go test -v` (uses shared test file)
+  6. If successful, provide integration instructions using the **Before/After format** (see below)
 
-- **Student's role**: Manually review and apply changes to the actual implementation file (`browser.go`)
+- **Student's role**:
+  - Manually review LLM's changes in `llm/browser.go`
+  - Type changes into `browser.go` (hands-on learning)
+  - Run tests in root: `go test -v`
 
 - **Important**:
   - Claude must NEVER directly modify `browser.go`. This ensures hands-on learning.
-  - Claude must NEVER create separate `*_llm.go` files. Only work in `browser_llm.go`.
+  - Claude works ONLY in `llm/` directory
+  - Test files and testdata are shared via symbolic links
 
 ### Integration Instructions Format
 
