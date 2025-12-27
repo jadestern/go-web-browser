@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/url"
@@ -309,7 +310,7 @@ func (u *URL_llm) requestHTTP() (string, error) {
 }
 
 // show_llm: HTML 태그를 제거하고 텍스트만 출력하는 함수
-// 파이썬의 show 함수를 Go로 변환한 버전입니다.
+// 태그를 제거한 후 HTML 엔티티(&lt;, &gt; 등)를 실제 문자로 변환합니다.
 //
 // 파이썬 원본:
 // def show(body):
@@ -323,12 +324,10 @@ func (u *URL_llm) requestHTTP() (string, error) {
 //	    elif not in_tag:
 //	        print(c, end="")
 func show_llm(body string) {
-	// 태그 안에 있는지 추적하는 플래그
+	// 1. 태그를 제거하고 텍스트만 추출
 	inTag := false
+	var textBuilder strings.Builder
 
-	// range를 사용해서 문자열의 각 문자(rune)를 순회
-	// _ 는 인덱스 (사용하지 않으므로 무시)
-	// c 는 rune 타입 (Go의 유니코드 문자 타입, int32의 별칭)
 	for _, c := range body {
 		if c == '<' {
 			// '<' 를 만나면 태그 시작
@@ -337,11 +336,17 @@ func show_llm(body string) {
 			// '>' 를 만나면 태그 종료
 			inTag = false
 		} else if !inTag {
-			// 태그 안이 아닐 때만 출력
-			// rune을 string으로 변환 필요
-			fmt.Print(string(c))
+			// 태그 안이 아닐 때만 텍스트 수집
+			textBuilder.WriteRune(c)
 		}
 	}
+
+	// 2. 추출한 텍스트의 HTML 엔티티를 실제 문자로 변환
+	// 예: &lt;div&gt; → <div>
+	text := html.UnescapeString(textBuilder.String())
+
+	// 3. 변환된 텍스트 출력
+	fmt.Print(text)
 }
 
 // load_llm: URL 객체를 받아서 요청하고 화면에 표시하는 통합 함수
@@ -369,7 +374,7 @@ func main() {
 
 	// 인자가 없으면 테스트 모드로 실행
 	if len(os.Args) < 2 {
-		fmt.Println("=== data 스킴 테스트 모드 ===\n")
+		fmt.Println("=== HTML 엔티티 테스트 모드 ===\n")
 
 		// 테스트할 data URL 목록
 		testURLs := []string{
@@ -377,6 +382,10 @@ func main() {
 			"data:text/html,<h1>Hello</h1>",
 			"data:text/html,<h1>안녕하세요</h1><p>data 스킴 테스트</p>",
 			"data:text/html;base64,PGgxPkhlbGxvPC9oMT4=", // <h1>Hello</h1>의 base64
+			// HTML 엔티티 테스트 케이스
+			"data:text/html,&lt;div&gt;",                           // <div> 출력되어야 함
+			"data:text/html,&lt;h1&gt;Title&lt;/h1&gt;",            // <h1>Title</h1> 출력되어야 함
+			"data:text/html,<p>&lt;code&gt;&amp;&lt;/code&gt;</p>", // <code>&</code> 출력되어야 함
 		}
 
 		for i, testURL := range testURLs {

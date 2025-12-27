@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/url"
@@ -271,6 +272,7 @@ func (u *URL) requestHTTP() (string, error) {
 
 func show(body string) {
 	inTag := false
+	var textBuilder strings.Builder
 
 	for _, c := range body {
 		if c == '<' {
@@ -278,9 +280,14 @@ func show(body string) {
 		} else if c == '>' {
 			inTag = false
 		} else if !inTag {
-			fmt.Print(string(c))
+			// 태그 안이 아닐 때만 텍스트 수집
+			textBuilder.WriteRune(c)
 		}
 	}
+
+	text := html.UnescapeString(textBuilder.String())
+
+	fmt.Print(text)
 }
 
 func load(urlStr string) {
