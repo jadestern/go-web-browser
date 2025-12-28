@@ -10,13 +10,15 @@ import (
 func load(urlStr string) {
 	urlObj, err := NewURL(urlStr)
 	if err != nil {
-		fmt.Println("분석 에러: ", err)
+		fmt.Printf("URL 분석 에러 (%s): %v\n", urlStr, err)
 		return
 	}
 
+	fmt.Printf("브라우징: %s\n", urlObj.String())
+
 	body, err := urlObj.Request()
 	if err != nil {
-		fmt.Println("요청 에러: ", err)
+		fmt.Printf("요청 실패 (%s): %v\n", urlObj.String(), err)
 		return
 	}
 
@@ -25,6 +27,7 @@ func load(urlStr string) {
 }
 
 func main() {
+	fmt.Println("=== Go Web Browser ===")
 	var urlStr string
 
 	if len(os.Args) < 2 {

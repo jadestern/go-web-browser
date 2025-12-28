@@ -38,6 +38,25 @@ type URL struct {
 	Path   string // 경로 (/index.html)
 }
 
+func (u *URL) String() string {
+	if u.Scheme == SchemeData {
+		return fmt.Sprintf("data:%s", u.Path)
+	}
+	if u.Scheme == SchemeViewSource {
+		return fmt.Sprintf("view-source:%s", u.Path)
+	}
+	if u.Scheme == SchemeFile {
+		return fmt.Sprintf("file://%s", u.Path)
+	}
+
+	if (u.Scheme == SchemeHTTP && u.Port == DefaultHTTPPort) ||
+		(u.Scheme == SchemeHTTPS && u.Port == DefaultHTTPSPort) {
+		return fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
+	}
+
+	return fmt.Sprintf("%s://%s:%d%s", u.Scheme, u.Host, u.Port, u.Path)
+}
+
 // NewURL NewURL: 주소 문자열을 분석해서 URL 구조체를 만들어주는 함수입니다.
 func NewURL(urlStr string) (*URL, error) {
 	if strings.HasPrefix(urlStr, string(SchemeViewSource)+PortDelimiter) {
@@ -65,7 +84,7 @@ func NewURL(urlStr string) (*URL, error) {
 	scheme := Scheme(parts[0])
 
 	if scheme != SchemeHTTP && scheme != SchemeHTTPS && scheme != SchemeFile {
-		return nil, fmt.Errorf("http, https, file 또는 data 프로토콜만 지원합니다")
+		return nil, fmt.Errorf("지원하지 않는 프로토콜입니다: %s", scheme)
 	}
 
 	rest := parts[1]
@@ -78,7 +97,7 @@ func NewURL(urlStr string) (*URL, error) {
 	var err error
 	host, port, err = parsePort(scheme, host)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("포트 파싱 실패: %w", err)
 	}
 
 	// 4. 완성된 결과물을 돌려줍니다.

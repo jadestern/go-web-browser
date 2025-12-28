@@ -165,29 +165,38 @@ func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	// 서버의 대답(응답) 읽기
 	fmt.Printf("--- [%s:%d] 연결 및 요청 완료 ---\n", u.Host, u.Port)
 
-	reader := bufio.NewReader(conn)
+	return parseResponse(conn)
+}
 
-	// Status Line 읽기
-	_, err = reader.ReadString('\n')
+// parseResponse: 서버의 응답을 읽어 상태 라인, 헤더를 처리하고 바디를 반환합니다.
+func parseResponse(r io.Reader) (string, error) {
+	reader := bufio.NewReader(r)
+
+	// 1. Status Line 읽기 (예: HTTP/1.1 200 OK)
+	statusLine, err := reader.ReadString('\n')
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("상태 라인 읽기 실패: %w", err)
 	}
+	_ = statusLine // 현재는 상태 코드를 검사하지 않지만, 나중에 확장을 위해 저장
 
-	// Headers 건너뛰기
+	// 2. Headers 건너뛰기
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			break
+			if err == io.EOF {
+				break
+			}
+			return "", fmt.Errorf("헤더 읽기 실패: %w", err)
 		}
 		if line == "\r\n" || line == "\n" {
 			break
 		}
 	}
 
-	// Body 읽기
+	// 3. Body 읽기
 	bodyBytes, err := io.ReadAll(reader)
 	if err != nil && err != io.EOF {
-		return "", err
+		return "", fmt.Errorf("바디 읽기 실패: %w", err)
 	}
 
 	return string(bodyBytes), nil

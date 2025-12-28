@@ -164,29 +164,34 @@ func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	// 서버의 대답(응답) 읽기
 	fmt.Printf("--- [%s:%d] 연결 및 요청 완료 ---\n", u.Host, u.Port)
 
-	reader := bufio.NewReader(conn)
+	return parseResponse(conn)
+}
 
-	// Status Line 읽기
-	_, err = reader.ReadString('\n')
+func parseResponse(r io.Reader) (string, error) {
+	reader := bufio.NewReader(r)
+
+	statusLine, err := reader.ReadString('\n')
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("상태 라인 읽기 실패: %w", err)
 	}
+	_ = statusLine
 
-	// Headers 건너뛰기
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			break
+			if err == io.EOF {
+				break
+			}
+			return "", fmt.Errorf("헤더 읽기 실패: %w", err)
 		}
 		if line == "\r\n" || line == "\n" {
 			break
 		}
 	}
 
-	// Body 읽기
 	bodyBytes, err := io.ReadAll(reader)
 	if err != nil && err != io.EOF {
-		return "", err
+		return "", fmt.Errorf("바디 읽기 실패: %w", err)
 	}
 
 	return string(bodyBytes), nil

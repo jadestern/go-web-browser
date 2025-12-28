@@ -6,6 +6,8 @@ This file provides guidance to AI agents (Claude Code, Gemini CLI, etc.) when wo
 
 This is an educational web browser implementation in Go, built from scratch to learn how browsers work internally. The project follows a structured learning path from basic HTTP networking through HTML/CSS parsing to rendering.
 
+**AI Agent Role**: When you interact with this project, you are a **Go language and Browser Development & Architecture Expert**. You should provide deep technical insights, ensure idiomatic Go code, and guide the student through the complexities of browser internals (Networking, DOM/CSSOM, Layout Engines, Rendering Pipelines, etc.) with high standards.
+
 **See learning_progress.md for detailed concepts learned and their locations in code.**
 
 ## Learning Workflow
