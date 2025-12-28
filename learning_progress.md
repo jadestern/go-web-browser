@@ -52,10 +52,10 @@
 
 ### 1.4 고급 네트워킹
 - **✅ HTTPS/TLS**: 암호화된 통신 ([fetcher.go:206,208](fetcher.go:206))
-- **🔄 HTTP/1.1 Keep-Alive**: 연결 재사용으로 성능 향상
+- **✅ HTTP/1.1 Keep-Alive**: 연결 재사용으로 성능 향상 (완료: 2025-12-28)
   - ✅ ConnectionPool 패턴 구현 ([fetcher.go:37-104](fetcher.go:37))
-  - ✅ Content-Length 기반 body 읽기 ([fetcher.go:306-323](fetcher.go:306))
-  - ⬜ Transfer-Encoding: chunked (다음 작업)
+  - ✅ Content-Length 기반 body 읽기 ([fetcher.go:440-454](fetcher.go:440))
+  - ✅ Transfer-Encoding: chunked ([fetcher.go:296-362](fetcher.go:296), [fetcher.go:429-437](fetcher.go:429))
 - ⬜ **리다이렉트 처리**: 3xx 응답 코드 처리
 - ⬜ **쿠키 관리**: Cookie 헤더 처리
 - ⬜ **캐싱**: 응답 캐시 및 재사용
@@ -64,8 +64,15 @@
 - TCP 3-way handshake 비용 절감
 - 연결 풀(Pool) 관리: Check-out/Check-in 패턴
 - `sync.Mutex`: 동시성 제어 ([fetcher.go:39](fetcher.go:39))
-- `io.ReadFull()`: 정확한 바이트 수 읽기 ([fetcher.go:318](fetcher.go:318))
+- `io.ReadFull()`: 정확한 바이트 수 읽기 ([fetcher.go:447](fetcher.go:447))
 - LIFO 전략: 마지막 사용 연결 우선 재사용
+
+**주요 개념 (Chunked Encoding)**:
+- HTTP Body 전송 3가지 방식: Content-Length, Chunked, EOF
+- 16진수 파싱: `strconv.ParseInt(str, 16, 64)` ([fetcher.go:330](fetcher.go:330))
+- Chunk 형식: `<hex-size>\r\n<data>\r\n...0\r\n\r\n`
+- 상태 머신 패턴: 반복문으로 chunk 단위 읽기
+- 종료 조건: chunk size 0 감지 ([fetcher.go:338](fetcher.go:338))
 
 ---
 
@@ -250,12 +257,19 @@
   - NewURL: 60줄 → 30줄 (50% 감소)
   - 중첩 if문 제거: 3단계 → 1단계
 - **✅ 단일 책임 원칙 (SRP)**: 함수가 한 가지만 수행
+- **✅ 아키텍처 리팩토링**: 복잡한 함수를 여러 함수로 분해 (2025-12-28)
+  - `parseResponse`: 80줄 → 23줄 (57% 감소, orchestrator 역할만)
+  - `readHeaders()`: 헤더 파싱 전담 ([fetcher.go:364-413](fetcher.go:364))
+  - `readBody()`: body 읽기 전략 선택 ([fetcher.go:415-463](fetcher.go:415))
+  - 장점: 가독성↑, 테스트 용이성↑, 재사용성↑, 확장성↑
 
 **주요 개념**:
 - 순수 함수: 같은 입력 → 같은 출력, 부작용 없음
 - 함수 시그니처 설계: 명확한 입력/출력
 - 명명된 반환값: `(cleanHost string, port int, err error)`
 - 테스트 가능성: 순수 함수는 테스트하기 쉬움
+- Orchestrator 패턴: 상위 함수가 하위 함수 조율
+- 관심사 분리 (Separation of Concerns): 각 함수가 특정 책임만
 
 ### 6.11 고급 기능
 - ⬜ **제네릭**: 타입 파라미터
@@ -422,13 +436,20 @@
 **완료**:
 - CHAPTER 1 전체 (1.1 ~ 1.7) - 2024-12-24 ✅
 - CHAPTER 1 연습 문제 - HTTP/1.1 및 헤더 개선 - 2025-12-25 ✅
-- HTTP Keep-Alive 구현 (부분 완료) - 2025-12-28 🔄
-  - ✅ ConnectionPool 패턴
-  - ✅ Content-Length 기반 읽기
-  - ⬜ Transfer-Encoding: chunked (다음 작업)
+- HTTP/1.1 Keep-Alive 완전 구현 - 2025-12-28 ✅
+  - ✅ ConnectionPool 패턴 (LIFO, 최대 6개 연결)
+  - ✅ Content-Length 기반 body 읽기
+  - ✅ Transfer-Encoding: chunked 구현
+  - ✅ 아키텍처 리팩토링 (parseResponse 함수 분해)
+  - ✅ 테스트 47개 (46 pass, 1 skip)
 
-**다음**: Transfer-Encoding: chunked 구현
-**전체 진행률**: 7/152 섹션 완료 (~5%), HTTP/1.1 고급 기능 진행 중
+**다음 후보**:
+1. HTTP 리다이렉트 처리 (3xx)
+2. 쿠키 관리
+3. HTTP 캐싱
+4. **CHAPTER 2 시작** (GUI 렌더링) - 추천!
+
+**전체 진행률**: CHAPTER 1 완료 + 고급 HTTP 기능 (~8%), 다음은 GUI 렌더링
 
 ---
 
@@ -693,198 +714,131 @@
 
 ---
 
-### 2025-12-28: HTTP Keep-Alive 구현 및 리팩토링
+### 2025-12-28: Transfer-Encoding: chunked 구현 및 아키텍처 리팩토링
 
-#### Phase 1: Keep-Alive 기초 이해
+#### Phase 1: Keep-Alive 기초 구현 (아침)
 - **문제 인식**: 매 요청마다 TCP 3-way handshake 반복
   - 연결 생성 비용: SYN → SYN-ACK → ACK (3번 왕복)
   - 연결 종료 비용: FIN → ACK → FIN → ACK (4번 왕복)
   - 지연 시간(latency) 증가
-- **Keep-Alive 개념 학습**:
-  - HTTP/1.1 기본 동작: 연결 재사용
-  - `Connection: close` 제거하면 keep-alive 활성화
-  - `Content-Length` 필요: 응답 끝 판단
+- **Content-Length 기반 Body 읽기**:
+  - `strconv.Atoi()`: 문자열 → 정수 변환
+  - `io.ReadFull()`: 정확히 N바이트 읽기
+  - 연결 재사용 가능
+- **ConnectionPool 구현**:
+  - Array-based Pool with LIFO strategy
+  - Check-out/Check-in 패턴
+  - 최대 6개 연결 제한 (RFC 2616)
+  - 동시성 제어: `sync.Mutex`
 
-#### Phase 2: Content-Length 기반 Body 읽기
-- **문제**: `io.ReadAll()`은 EOF까지 읽음 → 연결 재사용 불가
-- **해결**: `Content-Length` 헤더 파싱 후 정확한 바이트 수만 읽기
-  - `strconv.Atoi()`: 문자열 → 정수 변환 ([fetcher.go:311](fetcher.go:311))
-  - `io.ReadFull()`: 정확히 N바이트 읽기 ([fetcher.go:318](fetcher.go:318))
-  - 연결이 닫히지 않아 재사용 가능
-- **헤더 파싱 개선** ([fetcher.go:271-294](fetcher.go:271)):
-  - map으로 모든 헤더 저장
-  - `Content-Length` 존재 여부 확인
+#### Phase 2: Transfer-Encoding: chunked 구현 (오후)
+- **문제 발견**: `example.org` 접속 시 프로그램 멈춤
+  - 원인: `Transfer-Encoding: chunked` 응답, `Content-Length` 없음
+  - Keep-alive라서 EOF 안 옴 → 무한 대기
+- **Chunked Encoding 구현** ([fetcher.go:296-362](fetcher.go:296)):
+  - HTTP chunked format 이해: `<hex-size>\r\n<data>\r\n...0\r\n\r\n`
+  - `readChunkedBody()` 함수 추가
+  - 16진수 파싱: `strconv.ParseInt(str, 16, 64)`
+  - 상태 머신 패턴: 반복문으로 chunk 단위 읽기
+  - 종료 조건: chunk size 0 감지
+- **parseResponse 수정** ([fetcher.go:429-437](fetcher.go:429)):
+  - 우선순위 1: Transfer-Encoding: chunked
+  - 우선순위 2: Content-Length
+  - 우선순위 3: EOF까지 읽기
+- **테스트 작성** (TDD):
+  - `TestHTTPFetcher_ChunkedEncoding`: 기본 chunked 응답
+  - `TestHTTPFetcher_ChunkedEncodingMultipleChunks`: 여러 chunk
+  - `TestHTTPFetcher_ChunkedEncodingLarge`: 큰 chunk (1000바이트)
+  - `http.Hijacker` 사용: raw TCP 연결 제어
+  - 모든 테스트 통과 ✅
 
-#### Phase 3: ConnectionPool 구현
-- **초기 설계**: map[string]net.Conn (연결 1개만 저장)
-- **문제 발견**: 동시 요청 시 같은 연결 재사용 → 데이터 섞임
-- **개선**: Array-based Pool ([fetcher.go:37-104](fetcher.go:37))
-  ```go
-  type ConnectionPool struct {
-      connections map[string][]net.Conn  // host:port → 여러 연결
-      mu          sync.Mutex              // 동시성 제어
-      maxPerHost  int                     // 최대 6개 (RFC 2616)
-  }
-  ```
-- **Check-out/Check-in 패턴**:
-  - `Get()`: Pool에서 연결 꺼내기 (LIFO)
-  - `Put()`: Pool에 연결 반납하기
-  - 초과 연결은 즉시 닫기 (메모리 누수 방지)
-
-#### Phase 4: 리팩토링 및 Best Practices
-- **Logging 시스템 도입** ([fetcher.go:42-53](fetcher.go:42)):
-  - `log.Logger` 사용
-  - `DEBUG` 환경 변수로 제어
-  - 프로덕션: `io.Discard`로 silent
-  - 개발: `DEBUG=1`로 상세 로그
-- **Godoc 추가**:
-  - 패키지 레벨 문서
-  - 모든 public 타입/함수에 문서화
-  - 반환값 설명: named returns 사용
-- **parseResponse 개선** ([fetcher.go:296-376](fetcher.go:296)):
-  - 반환값 추가: `(body, headers, error)`
-  - 테스트 가능성 향상
-
-#### Phase 5: ConnectionPool 테스트 작성
-**총 4개 테스트 추가 (모두 통과 ✅)**
-
-1. **TestConnectionPool_GetPut** ([fetcher_test.go:435-456](fetcher_test.go:435))
-   - 기본 Get/Put 동작 검증
-   - 빈 Pool에서 Get → nil 반환
-   - Put 후 Get → 연결 반환
-
-2. **TestConnectionPool_MaxPerHost** ([fetcher_test.go:458-472](fetcher_test.go:458))
-   - 최대 6개 연결 제한 검증
-   - 7번째 연결은 자동으로 닫힘
-
-3. **TestConnectionPool_MultipleHosts** ([fetcher_test.go:474-489](fetcher_test.go:474))
-   - 여러 호스트 독립적 관리
-   - host1의 연결이 host2에 영향 없음
-
-4. **TestConnectionPool_Close** ([fetcher_test.go:491-507](fetcher_test.go:491))
-   - 특정 호스트의 모든 연결 닫기
-   - Pool에서 제거 확인
+#### Phase 3: 아키텍처 리팩토링 (저녁)
+- **문제**: `parseResponse` 함수가 80줄, 3가지 책임
+  - 상태 라인 읽기
+  - 헤더 파싱
+  - Body 읽기
+- **해결: 함수 분해**
+  - `readHeaders()`: 헤더 파싱 전담 (50줄) ([fetcher.go:364-413](fetcher.go:364))
+  - `readBody()`: body 읽기 전략 선택 (35줄) ([fetcher.go:415-463](fetcher.go:415))
+  - `parseResponse()`: orchestrator 역할만 (23줄, 57% 감소) ([fetcher.go:465-499](fetcher.go:465))
+- **이점**:
+  - ✅ 단일 책임 원칙 (SRP): 각 함수가 한 가지 일만
+  - ✅ 가독성: 함수 이름만으로 무엇을 하는지 명확
+  - ✅ 테스트 용이성: 독립적 테스트 가능
+  - ✅ 재사용성: 각 함수를 다른 곳에서도 사용 가능
+  - ✅ 확장성: 새 전략 추가 시 해당 함수만 수정
 
 #### Go 언어 개념 학습
-- **동시성 제어**:
-  - `sync.Mutex`: 공유 자원 보호
-  - `Lock()` / `Unlock()`: Critical Section
-  - `defer Unlock()`: 패닉 안전성
-  - 경쟁 조건(Race Condition) 방지
-- **네트워크 프로그래밍**:
-  - `net.Conn` 인터페이스 재사용
-  - 연결 풀링 패턴
-  - 리소스 관리 (메모리 누수 방지)
-- **에러 처리**:
-  - `%w` 포맷: 에러 래핑 (error wrapping)
-  - `errors.Is()` / `errors.As()`: 에러 체인 검사
-  - Named return values: 명확한 반환값 문서화
+- **16진수 파싱**:
+  - `strconv.ParseInt(str, 16, 64)`: 16진수 → 10진수
+  - 예: "1a3" → 419
+- **상태 머신 패턴**:
+  - 반복문으로 상태 전이
+  - 종료 조건 명확히
+- **HTTP Mock 테스트**:
+  - `http.Hijacker`: 저수준 연결 제어
+  - `w.(http.Hijacker).Hijack()`: raw TCP 얻기
+  - Manual HTTP 응답 작성
+- **아키텍처 설계**:
+  - Orchestrator 패턴: 상위 함수가 하위 함수 조율
+  - 관심사 분리 (Separation of Concerns)
+  - 함수 분해 기준: 단일 책임, 재사용성, 테스트 가능성
 
-#### 문제 발견: Transfer-Encoding: chunked
-- **증상**: `example.org` 접속 시 프로그램 멈춤
-- **원인 분석**:
-  - 서버가 `Transfer-Encoding: chunked` 응답
-  - `Content-Length` 헤더 없음
-  - 현재 코드: `io.ReadAll()` 시도
-  - Keep-alive라서 EOF 안 옴 → 무한 대기
-- **HTTP Body 전송 방식**:
-  1. `Content-Length`: 정확한 바이트 수 (✅ 구현 완료)
-  2. `Transfer-Encoding: chunked`: 조각 전송 (⬜ 다음 작업)
-  3. `Connection: close`: 연결 끊어서 끝 표시 (구식)
-
-#### 다음 작업
-- **Transfer-Encoding: chunked 구현**:
-  - Chunked encoding 형식 이해
-  - Chunk size 파싱
-  - 여러 chunk 읽기
-  - 마지막 chunk (0\r\n) 감지
-  - Keep-Alive 유지하면서 body 읽기
-
-#### 설계 결정
-- **리팩토링 우선**: 코드 정리 후 새 기능 추가
-- **Before/After 방식**: 학생이 직접 타이핑하며 학습
-- **테스트 주도**: 기능 추가 전 테스트 작성
-
-#### 최종 테스트 현황
-- **총 44개 테스트** (43 pass, 1 skip)
-  - parseHTML: 5개
-  - NewURL: 8개
-  - parsePort: 6개
-  - parseHostPath: 6개
-  - FileFetcher: 4개
-  - DataFetcher: 6개
-  - HTTPFetcher: 5개
-  - ConnectionPool: 4개 (신규)
+#### 최종 결과
+- **테스트**: 47개 (46 pass, 1 skip)
+  - Chunked encoding 테스트 3개 추가
+- **example.org**: 정상 작동 (더 이상 멈추지 않음)
+- **코드 품질**: parseResponse 80줄 → 23줄 (57% 감소)
+- **학습 개념**:
+  - HTTP chunked encoding
+  - 16진수 파싱
+  - 상태 머신 패턴
+  - 아키텍처 리팩토링
+  - 함수 분해 및 관심사 분리
 
 ---
 
 ## 다음 세션 작업 가이드
 
-### 현재 상태 (2025-12-28)
+### 현재 상태 (2025-12-28 저녁)
 
 **✅ 완료된 작업**:
-- HTTP Keep-Alive 기본 구현 (ConnectionPool + Content-Length 기반 읽기)
-- 리팩토링 완료 (logging, Godoc, parseResponse에서 headers 반환)
-- ConnectionPool 단위 테스트 4개 추가
-- learning_progress.md 업데이트
-- Git 커밋: `feat(http): implement Keep-Alive connection pooling`
+- ✅ HTTP Keep-Alive 완전 구현 (ConnectionPool + Content-Length + Chunked)
+- ✅ Transfer-Encoding: chunked 구현
+- ✅ 아키텍처 리팩토링 (parseResponse 함수 분해)
+- ✅ Chunked encoding 테스트 3개 추가
+- ✅ example.org 정상 작동 확인
+- ✅ learning_progress.md 업데이트
+- ✅ AGENTS.md에 Conventional Commits 규칙 추가
+- ✅ Git 커밋 예정: `feat(http): implement chunked encoding and refactor response parsing`
 
-**❌ 발견한 문제**:
-- `example.org` 접속 시 프로그램 멈춤
-- **원인**: 서버가 `Transfer-Encoding: chunked` 사용
-- **현상**: Content-Length 없어서 `io.ReadAll()` 호출 → Keep-alive라서 EOF 안 옴 → 무한 대기
+**🎯 다음 작업 후보**:
 
-**🎯 다음 작업**:
-- Transfer-Encoding: chunked 구현
+1. **HTTP 리다이렉트 처리** (3xx 응답 코드)
+   - 301, 302, 307, 308 리다이렉트
+   - Location 헤더 파싱
+   - 최대 리다이렉트 횟수 제한
+   - 순환 리다이렉트 방지
 
-### Chunked Encoding 구현 가이드
+2. **쿠키 관리** (Cookie/Set-Cookie 헤더)
+   - 쿠키 저장소 구현
+   - Set-Cookie 헤더 파싱
+   - Cookie 헤더 자동 추가
+   - Domain/Path/Expires 속성 처리
 
-**HTTP Chunked Encoding 형식**:
-```
-<16진수-크기>\r\n
-<데이터>\r\n
-<16진수-크기>\r\n
-<데이터>\r\n
-0\r\n
-\r\n
-```
+3. **HTTP 캐싱** (Cache-Control, ETag)
+   - 캐시 저장소 구현
+   - Cache-Control 헤더 파싱
+   - If-None-Match/If-Modified-Since
+   - 304 Not Modified 처리
 
-**예시**:
-```
-5\r\n
-Hello\r\n
-6\r\n
- World\r\n
-0\r\n
-\r\n
-```
-→ 결과: "Hello World"
+4. **CHAPTER 2 시작**: 화면에 그리기
+   - GUI 라이브러리 선택 (Fyne, Gio, etc.)
+   - 창 만들기
+   - 텍스트 렌더링
+   - 스크롤 구현
 
-**구현 단계**:
-1. `Transfer-Encoding: chunked` 헤더 확인
-2. 반복:
-   - 16진수 chunk 크기 읽기 (예: "1a3\r\n")
-   - `strconv.ParseInt(크기, 16, 64)`: 16진수 → 10진수 변환
-   - chunk 크기만큼 데이터 읽기
-   - 끝의 `\r\n` 읽어서 버리기
-   - chunk 크기가 0이면 종료
-3. 마지막 `\r\n` 읽기
-
-**테스트 전략**:
-- `httptest.NewServer`로 chunked 응답 생성
-- 여러 chunk 크기 테스트 (작은/큰/빈 chunk)
-- Edge case: 1바이트 chunk, 큰 데이터 등
-
-**작업할 파일**:
-- `llm/fetcher.go` - parseResponse() 함수 수정
-- `fetcher_test.go` - chunked encoding 테스트 추가
-
-**참고**:
-- RFC 7230 Section 4.1: Chunked Transfer Coding
-- `curl -i http://example.org` 실행하면 실제 chunked 응답 확인 가능
-
-**작업 방식**:
-1. llm/ 디렉토리에서 구현 및 테스트
-2. 테스트 통과 확인
-3. Before/After instructions 제공
-4. 학생이 root 파일에 직접 타이핑하며 학습
+**추천**: CHAPTER 2로 진행 (GUI 렌더링)
+- HTTP 네트워킹은 충분히 학습함
+- 실제 브라우저처럼 화면에 표시하는 것이 더 흥미로울 것
+- 리다이렉트/쿠키/캐싱은 나중에 필요할 때 추가 가능

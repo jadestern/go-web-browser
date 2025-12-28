@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -594,5 +595,119 @@ func TestConnectionPool_Close(t *testing.T) {
 	_, found := pool.Get(address)
 	if found {
 		t.Error("Get() should return false after pool.Close()")
+	}
+}
+
+// TestHTTPFetcher_ChunkedEncoding: Transfer-Encoding: chunked 응답 처리
+func TestHTTPFetcher_ChunkedEncoding(t *testing.T) {
+	// Mock HTTP server that sends chunked response
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Send chunked response manually
+		// Don't use w.Write() - it auto-adds Content-Length
+		// Write raw HTTP response instead
+		conn, buf, _ := w.(http.Hijacker).Hijack()
+		defer conn.Close()
+
+		// Status line
+		buf.WriteString("HTTP/1.1 200 OK\r\n")
+		// Headers
+		buf.WriteString("Transfer-Encoding: chunked\r\n")
+		buf.WriteString("Connection: keep-alive\r\n")
+		buf.WriteString("\r\n")
+		// Chunked body: "Hello World"
+		buf.WriteString("5\r\n")      // chunk size: 5 bytes
+		buf.WriteString("Hello\r\n")  // chunk data
+		buf.WriteString("6\r\n")      // chunk size: 6 bytes
+		buf.WriteString(" World\r\n") // chunk data
+		buf.WriteString("0\r\n")      // last chunk (size 0)
+		buf.WriteString("\r\n")       // trailing CRLF
+		buf.Flush()
+	}))
+	defer server.Close()
+
+	url, err := NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL(%q) failed: %v", server.URL, err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	expected := "Hello World"
+	if content != expected {
+		t.Errorf("content = %q; want %q", content, expected)
+	}
+}
+
+// TestHTTPFetcher_ChunkedEncodingMultipleChunks: 여러 chunk 테스트
+func TestHTTPFetcher_ChunkedEncodingMultipleChunks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, buf, _ := w.(http.Hijacker).Hijack()
+		defer conn.Close()
+
+		buf.WriteString("HTTP/1.1 200 OK\r\n")
+		buf.WriteString("Transfer-Encoding: chunked\r\n")
+		buf.WriteString("\r\n")
+		// Many small chunks
+		buf.WriteString("1\r\nA\r\n")
+		buf.WriteString("1\r\nB\r\n")
+		buf.WriteString("1\r\nC\r\n")
+		buf.WriteString("1\r\nD\r\n")
+		buf.WriteString("0\r\n\r\n")
+		buf.Flush()
+	}))
+	defer server.Close()
+
+	url, err := NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	expected := "ABCD"
+	if content != expected {
+		t.Errorf("content = %q; want %q", content, expected)
+	}
+}
+
+// TestHTTPFetcher_ChunkedEncodingLarge: 큰 chunk 테스트
+func TestHTTPFetcher_ChunkedEncodingLarge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, buf, _ := w.(http.Hijacker).Hijack()
+		defer conn.Close()
+
+		buf.WriteString("HTTP/1.1 200 OK\r\n")
+		buf.WriteString("Transfer-Encoding: chunked\r\n")
+		buf.WriteString("\r\n")
+
+		// Large chunk: 1000 'X' characters
+		largeData := strings.Repeat("X", 1000)
+		// 1000 in hex = 0x3E8
+		buf.WriteString("3e8\r\n")
+		buf.WriteString(largeData + "\r\n")
+		buf.WriteString("0\r\n\r\n")
+		buf.Flush()
+	}))
+	defer server.Close()
+
+	url, err := NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	expected := strings.Repeat("X", 1000)
+	if content != expected {
+		t.Errorf("content length = %d; want %d", len(content), len(expected))
 	}
 }

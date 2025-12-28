@@ -285,36 +285,94 @@ func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	return body, nil
 }
 
-// parseResponse parses an HTTP response and returns the body and headers.
+// readChunkedBody reads an HTTP response body with Transfer-Encoding: chunked.
 //
-// It reads the status line, parses all headers into a map, and reads the body.
-// If a Content-Length header is present, it reads exactly that many bytes,
-// allowing the connection to be reused (Keep-Alive). Otherwise, it reads
-// until EOF, which closes the connection.
+// Chunked encoding format:
+//
+//	<hex-size>\r\n
+//	<data>\r\n
+//	<hex-size>\r\n
+//	<data>\r\n
+//	0\r\n
+//	\r\n
+//
+// Example:
+//
+//	5\r\n
+//	Hello\r\n
+//	6\r\n
+//	 World\r\n
+//	0\r\n
+//	\r\n
+//
+// → "Hello World"
 //
 // Returns:
-//   - body: response body as string
-//   - headers: map of header names to values
-//   - error: any error encountered during parsing
-func parseResponse(r io.Reader) (body string, headers map[string]string, err error) {
-	reader := bufio.NewReader(r)
+//   - body bytes
+//   - error if chunk parsing fails
+func readChunkedBody(reader *bufio.Reader) ([]byte, error) {
+	var body []byte
 
-	// 1. Status Line 읽기 (예: HTTP/1.1 200 OK)
-	statusLine, err := reader.ReadString('\n')
-	if err != nil {
-		return "", nil, fmt.Errorf("상태 라인 읽기 실패: %w", err)
+	for {
+		// 1. Read chunk size line (hex number + \r\n)
+		sizeLine, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("failed to read chunk size: %w", err)
+		}
+
+		// 2. Parse hex size to decimal
+		sizeLine = strings.TrimSpace(sizeLine)
+		chunkSize, err := strconv.ParseInt(sizeLine, 16, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid chunk size %q: %w", sizeLine, err)
+		}
+
+		logger.Printf("Read chunk size: %d (0x%s)", chunkSize, sizeLine)
+
+		// 3. If chunk size is 0, we're done
+		if chunkSize == 0 {
+			reader.ReadString('\n')
+			break
+		}
+
+		// 4. Read chunk data (exactly chunkSize bytes)
+		chunkData := make([]byte, chunkSize)
+		_, err = io.ReadFull(reader, chunkData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read chunk data: %w", err)
+		}
+
+		// 5. Read trailing \r\n after chunk data
+		_, err = reader.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("failed to read chunk trailing CRLF: %w", err)
+		}
+
+		// 6. Append to body
+		body = append(body, chunkData...)
 	}
-	_ = statusLine // 현재는 상태 코드를 검사하지 않지만, 나중에 확장을 위해 저장
+	return body, nil
+}
 
-	// 2. Headers 파싱하기 (건너뛰기 → 파싱으로 변경!)
-	headers = make(map[string]string) // 헤더를 저장할 map
+// readHeaders reads HTTP response headers from reader.
+//
+// It reads lines until it encounters an empty line (\r\n or \n),
+// which signals the end of headers. Each header is parsed as "Key: Value"
+// and stored in a map.
+//
+// Returns:
+//   - headers: map of header names to values
+//   - error: if header reading fails
+func readHeaders(reader *bufio.Reader) (map[string]string, error) {
+	headers := make(map[string]string)
+
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
-			return "", nil, fmt.Errorf("헤더 읽기 실패: %w", err)
+			return nil, fmt.Errorf("헤더 읽기 실패: %w", err)
 		}
 
 		// 빈 줄이 나오면 헤더 끝
@@ -339,35 +397,97 @@ func parseResponse(r io.Reader) (body string, headers map[string]string, err err
 		fmt.Println("🔌 Connection 헤더 없음 (HTTP/1.1 기본 = keep-alive)")
 	}
 
-	// 3. Body 읽기: Content-Length에 따라 다르게 처리
-	var bodyBytes []byte
+	logger.Println("=== All Response Headers ===")
+	for key, value := range headers {
+		logger.Printf("%s: %s", key, value)
+	}
+	logger.Println("=========================")
 
-	if contentLengthStr, ok := headers["Content-Length"]; ok {
+	return headers, nil
+}
+
+// readBody reads HTTP response body based on headers.
+//
+// It uses different strategies depending on the headers:
+//  1. If Transfer-Encoding: chunked → read chunked body
+//  2. If Content-Length present → read exact bytes
+//  3. Otherwise, → read until EOF
+//
+// Strategies 1 and 2 allow connection reuse (Keep-Alive).
+// Strategy 3 closes the connection.
+//
+// Returns:
+//   - body bytes
+//   - error: if body reading fails
+func readBody(reader *bufio.Reader, headers map[string]string) ([]byte, error) {
+	if transferEncoding, ok := headers["Transfer-Encoding"]; ok && transferEncoding == "chunked" {
+		bodyBytes, err := readChunkedBody(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read chunked body: %w", err)
+		}
+		logger.Println("Read chunked body, connection reusable")
+		return bodyBytes, nil
+	} else if contentLengthStr, ok := headers["Content-Length"]; ok {
 		// Content-Length가 있으면: 정확히 그만큼만 읽기
 		logger.Printf("📏 Content-Length 헤더 발견: %s 바이트\n", contentLengthStr)
 
 		// string → int 변환 (예: "1234" → 1234)
 		contentLength, parseErr := strconv.Atoi(contentLengthStr)
 		if parseErr != nil || contentLength < 0 {
-			return "", headers, fmt.Errorf("Content-Length 파싱 실패: %v", parseErr)
+			return nil, fmt.Errorf("Content-Length 파싱 실패: %v", parseErr)
 		}
 
 		// 정확히 contentLength 바이트만 읽기
-		bodyBytes = make([]byte, contentLength) // N바이트 버퍼 생성
-		_, err = io.ReadFull(reader, bodyBytes) // 정확히 N바이트 읽기
+		bodyBytes := make([]byte, contentLength) // N바이트 버퍼 생성
+		_, err := io.ReadFull(reader, bodyBytes) // 정확히 N바이트 읽기
 		if err != nil {
-			return "", headers, fmt.Errorf("바디 읽기 실패 (Content-Length: %d): %w", contentLength, err)
+			return nil, fmt.Errorf("바디 읽기 실패 (Content-Length: %d): %w", contentLength, err)
 		}
 
 		logger.Printf("✅ %d 바이트 정확히 읽음 (소켓 유지 가능!)\n", contentLength)
+		return bodyBytes, nil
+	}
 
-	} else {
-		// Content-Length가 없으면: 기존 방식 (io.ReadAll)
-		logger.Println("⚠️  Content-Length 없음, 연결 끝까지 읽기")
-		bodyBytes, err = io.ReadAll(reader)
-		if err != nil && err != io.EOF {
-			return "", headers, fmt.Errorf("바디 읽기 실패: %w", err)
-		}
+	// Content-Length가 없으면: 기존 방식 (io.ReadAll)
+	logger.Println("⚠️  Content-Length 없음, 연결 끝까지 읽기")
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil && err != io.EOF {
+		return nil, fmt.Errorf("바디 읽기 실패: %w", err)
+	}
+
+	return bodyBytes, nil
+}
+
+// parseResponse parses an HTTP response and returns the body and headers.
+//
+// It reads the status line, parses headers, and reads the body.
+// This function orchestrates the parsing process by delegating to:
+//   - readHeaders() for header parsing
+//   - readBody() for body reading with appropriate strategy
+//
+// Returns:
+//   - body: response body as string
+//   - headers: map of header names to values
+//   - error: any error encountered during parsing
+func parseResponse(r io.Reader) (body string, headers map[string]string, err error) {
+	reader := bufio.NewReader(r)
+
+	// 1. Status Line 읽기 (예: HTTP/1.1 200 OK)
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		return "", nil, fmt.Errorf("상태 라인 읽기 실패: %w", err)
+	}
+	_ = statusLine // 현재는 상태 코드를 검사하지 않지만, 나중에 확장을 위해 저장
+
+	headers, err = readHeaders(reader)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// 3. Body 읽기: Content-Length에 따라 다르게 처리
+	bodyBytes, err := readBody(reader, headers)
+	if err != nil {
+		return "", headers, err
 	}
 
 	return string(bodyBytes), headers, nil

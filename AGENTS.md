@@ -192,6 +192,71 @@ go test -v
 go test -v -run TestName
 ```
 
+## Git Commit Guidelines
+
+When creating commits, use **Conventional Commits** format:
+
+### Conventional Commits Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+**Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `refactor`: Code refactoring (no functional changes)
+- `docs`: Documentation only changes
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks (dependencies, build, etc.)
+- `perf`: Performance improvements
+- `style`: Code style changes (formatting, missing semi-colons, etc.)
+
+**Scopes:** (optional but recommended)
+- `http`: HTTP client/networking
+- `parser`: HTML/CSS parsing
+- `layout`: Layout engine
+- `render`: Rendering
+- `tests`: Test-related changes
+
+**Examples:**
+```bash
+# New feature
+feat(http): implement chunked encoding support
+
+# Bug fix
+fix(parser): handle self-closing tags correctly
+
+# Refactoring
+refactor(http): extract parseResponse into smaller functions
+
+# Documentation
+docs: update learning progress with chunked encoding
+
+# Multiple changes in one commit
+feat(http): implement Keep-Alive connection pooling
+
+- Add ConnectionPool with LIFO strategy
+- Implement Content-Length based body reading
+- Add connection reuse logging
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+```
+
+**Important:**
+- Use present tense ("add" not "added")
+- Don't capitalize first letter of subject
+- No period at the end of subject
+- Keep subject line under 50 characters
+- Wrap body at 72 characters
+- Include Claude attribution for AI-assisted commits
+
 ## GitHub CLI (gh) Usage
 
 When working with GitHub-related tasks, **actively use the `gh` CLI tool** for all operations:
