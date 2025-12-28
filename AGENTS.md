@@ -56,12 +56,22 @@ When exploring or adding code:
   - Run tests in root: `go test -v`
   - **NOTE**: Test files are symlinks, so test changes by AI are automatically in root
 
-- **Important**:
-  - AI agents must NEVER directly modify root `.go` files (except test files). This ensures hands-on learning.
-  - AI works ONLY in `llm/` directory for implementation
-  - AI CAN modify root test files directly (they're shared via symlinks)
-  - Test files: `*_test.go` and `testdata/` are shared via symbolic links
-  - When AI adds tests, they're automatically available in both root and llm/
+- **Important - CRITICAL RULES**:
+  - ⛔ **NEVER modify root `.go` implementation files** (except test files)
+  - ⛔ **NEVER copy files from `llm/` to root** (e.g., `cp llm/browser.go browser.go`)
+  - ⛔ **NEVER run commands that modify root implementation files**
+  - ⛔ **NEVER use Write/Edit tools on root `.go` files** (except test files)
+  - ✅ AI works ONLY in `llm/` directory for implementation
+  - ✅ AI provides **Before/After instructions** for student to manually type
+  - ✅ AI CAN modify root test files directly (they're shared via symlinks)
+  - ✅ Test files: `*_test.go` and `testdata/` are shared via symbolic links
+  - ✅ When AI adds tests, they're automatically available in both root and llm/
+
+  **Why these rules exist:**
+  - This is a **hands-on learning project**
+  - Student learns by **typing code manually**, not by copying
+  - Typing reinforces understanding and muscle memory
+  - Student must read and understand each line before typing it
 
 ### Integration Instructions Format
 
@@ -105,6 +115,37 @@ func OriginalFunction() {
 - Explain **why** each change is necessary for understanding
 - Include **comments** in the After code to guide the student
 - For new methods/functions, show where they should be placed relative to existing code
+
+### How Student Applies Changes to Root
+
+**When student asks "how do I apply this to root?"**:
+
+1. **DO NOT copy files for them!** ⛔
+2. **Provide Before/After instructions** showing exactly what to change
+3. **Wait for student to ask** before providing instructions
+4. **Let student type manually** - this is the learning process!
+
+**Example response:**
+```
+Here's what to change in root/fetcher.go:
+
+### Change 1: Update ConnectionPool structure
+(location: fetcher.go, around line 37)
+
+Before:
+[show original code]
+
+After:
+[show new code]
+
+### Change 2: Update Get() method
+...
+```
+
+**If student explicitly requests auto-apply:**
+- Only then can you copy files
+- But remind them: "Copying skips the learning process. Are you sure?"
+- Prefer guiding them to type it themselves
 
 ### 2. Progress Tracking
 

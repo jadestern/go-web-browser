@@ -50,12 +50,22 @@
 - `map[string]string`: 키-값 쌍으로 헤더 관리
 - `strings.Builder`: 효율적인 문자열 조합 ([url_llm.go:136-142](url_llm.go:136))
 
-### 1.4 고급 네트워킹 (미학습)
-- ⬜ **HTTPS/TLS**: 암호화된 통신
-- ⬜ **HTTP/1.1 기능**: Keep-Alive, Chunked Transfer Encoding
+### 1.4 고급 네트워킹
+- **✅ HTTPS/TLS**: 암호화된 통신 ([fetcher.go:206,208](fetcher.go:206))
+- **🔄 HTTP/1.1 Keep-Alive**: 연결 재사용으로 성능 향상
+  - ✅ ConnectionPool 패턴 구현 ([fetcher.go:37-104](fetcher.go:37))
+  - ✅ Content-Length 기반 body 읽기 ([fetcher.go:306-323](fetcher.go:306))
+  - ⬜ Transfer-Encoding: chunked (다음 작업)
 - ⬜ **리다이렉트 처리**: 3xx 응답 코드 처리
 - ⬜ **쿠키 관리**: Cookie 헤더 처리
 - ⬜ **캐싱**: 응답 캐시 및 재사용
+
+**주요 개념 (Keep-Alive)**:
+- TCP 3-way handshake 비용 절감
+- 연결 풀(Pool) 관리: Check-out/Check-in 패턴
+- `sync.Mutex`: 동시성 제어 ([fetcher.go:39](fetcher.go:39))
+- `io.ReadFull()`: 정확한 바이트 수 읽기 ([fetcher.go:318](fetcher.go:318))
+- LIFO 전략: 마지막 사용 연결 우선 재사용
 
 ---
 
@@ -182,16 +192,26 @@
   - URL 파싱 + HTTP 요청 + 출력을 한 함수로
 
 ### 6.7 동시성 (Concurrency)
+- **✅ Mutex (뮤텍스)**: 공유 자원 보호
+  - `sync.Mutex`: 상호 배제 잠금 ([fetcher.go:39](fetcher.go:39))
+  - `Lock()` / `Unlock()`: 크리티컬 섹션 보호
+  - `defer Unlock()`: 패닉 시에도 잠금 해제 보장
+  - 경쟁 조건(Race Condition) 방지
 - ⬜ **고루틴 (Goroutines)**: 경량 스레드
 - ⬜ **채널 (Channels)**: 고루틴 간 통신
-- ⬜ **동기화**: Mutex, WaitGroup
+- ⬜ **WaitGroup**: 고루틴 완료 대기
 
 ### 6.8 테스팅
 - **✅ 단위 테스트 (Unit Testing)**: 개별 함수 테스트
-  - [browser_test.go:5-63](browser_test.go:5) - parseHTML 테스트
-  - [browser_test.go:69-224](browser_test.go:69) - NewURL 테스트
-  - [browser_test.go:230-335](browser_test.go:230) - parsePort 테스트
-  - [browser_test.go:341-429](browser_test.go:341) - parseHostPath 테스트
+  - [parser_test.go:5-63](parser_test.go:5) - parseHTML 테스트
+  - [url_test.go:69-224](url_test.go:69) - NewURL 테스트
+  - [url_test.go:230-335](url_test.go:230) - parsePort 테스트
+  - [url_test.go:341-429](url_test.go:341) - parseHostPath 테스트
+  - [fetcher_test.go:238-347](fetcher_test.go:238) - HTTPFetcher 테스트
+  - [fetcher_test.go:435-507](fetcher_test.go:435) - ConnectionPool 테스트
+- **✅ Mock 객체**: 테스트용 가짜 구현
+  - `mockConn`: net.Conn 인터페이스 구현 ([fetcher_test.go:351-393](fetcher_test.go:351))
+  - `httptest.NewServer`: Mock HTTP 서버 ([fetcher_test.go:240](fetcher_test.go:240))
 - **✅ 테스트 함수 작성**: `func TestXxx(t *testing.T)`
   - `t.Errorf()`: 테스트 실패 보고
   - `t.Fatalf()`: 치명적 에러로 즉시 종료
@@ -202,6 +222,7 @@
 - 테스트 함수 네이밍: `Test` + 함수명 + `_` + 시나리오
 - AAA 패턴: Arrange(준비), Act(실행), Assert(검증)
 - 에러 케이스 테스트: 잘못된 입력 검증
+- Mock 패턴: 외부 의존성 제거
 
 ### 6.9 인터페이스와 다형성
 - **✅ 인터페이스 정의**: `type Fetcher interface` ([browser.go:56-58](browser.go:56))
@@ -398,9 +419,16 @@
 
 ### 진행 상황 요약
 
-**완료**: CHAPTER 1 전체 (1.1 ~ 1.7) - 2024-12-24 ✅
-**다음**: CHAPTER 2 화면에 그리기
-**전체 진행률**: 7/152 섹션 완료 (~5%)
+**완료**:
+- CHAPTER 1 전체 (1.1 ~ 1.7) - 2024-12-24 ✅
+- CHAPTER 1 연습 문제 - HTTP/1.1 및 헤더 개선 - 2025-12-25 ✅
+- HTTP Keep-Alive 구현 (부분 완료) - 2025-12-28 🔄
+  - ✅ ConnectionPool 패턴
+  - ✅ Content-Length 기반 읽기
+  - ⬜ Transfer-Encoding: chunked (다음 작업)
+
+**다음**: Transfer-Encoding: chunked 구현
+**전체 진행률**: 7/152 섹션 완료 (~5%), HTTP/1.1 고급 기능 진행 중
 
 ---
 
@@ -662,3 +690,128 @@
   - FileFetcher: 4개
   - DataFetcher: 6개
   - HTTPFetcher: 5개
+
+---
+
+### 2025-12-28: HTTP Keep-Alive 구현 및 리팩토링
+
+#### Phase 1: Keep-Alive 기초 이해
+- **문제 인식**: 매 요청마다 TCP 3-way handshake 반복
+  - 연결 생성 비용: SYN → SYN-ACK → ACK (3번 왕복)
+  - 연결 종료 비용: FIN → ACK → FIN → ACK (4번 왕복)
+  - 지연 시간(latency) 증가
+- **Keep-Alive 개념 학습**:
+  - HTTP/1.1 기본 동작: 연결 재사용
+  - `Connection: close` 제거하면 keep-alive 활성화
+  - `Content-Length` 필요: 응답 끝 판단
+
+#### Phase 2: Content-Length 기반 Body 읽기
+- **문제**: `io.ReadAll()`은 EOF까지 읽음 → 연결 재사용 불가
+- **해결**: `Content-Length` 헤더 파싱 후 정확한 바이트 수만 읽기
+  - `strconv.Atoi()`: 문자열 → 정수 변환 ([fetcher.go:311](fetcher.go:311))
+  - `io.ReadFull()`: 정확히 N바이트 읽기 ([fetcher.go:318](fetcher.go:318))
+  - 연결이 닫히지 않아 재사용 가능
+- **헤더 파싱 개선** ([fetcher.go:271-294](fetcher.go:271)):
+  - map으로 모든 헤더 저장
+  - `Content-Length` 존재 여부 확인
+
+#### Phase 3: ConnectionPool 구현
+- **초기 설계**: map[string]net.Conn (연결 1개만 저장)
+- **문제 발견**: 동시 요청 시 같은 연결 재사용 → 데이터 섞임
+- **개선**: Array-based Pool ([fetcher.go:37-104](fetcher.go:37))
+  ```go
+  type ConnectionPool struct {
+      connections map[string][]net.Conn  // host:port → 여러 연결
+      mu          sync.Mutex              // 동시성 제어
+      maxPerHost  int                     // 최대 6개 (RFC 2616)
+  }
+  ```
+- **Check-out/Check-in 패턴**:
+  - `Get()`: Pool에서 연결 꺼내기 (LIFO)
+  - `Put()`: Pool에 연결 반납하기
+  - 초과 연결은 즉시 닫기 (메모리 누수 방지)
+
+#### Phase 4: 리팩토링 및 Best Practices
+- **Logging 시스템 도입** ([fetcher.go:42-53](fetcher.go:42)):
+  - `log.Logger` 사용
+  - `DEBUG` 환경 변수로 제어
+  - 프로덕션: `io.Discard`로 silent
+  - 개발: `DEBUG=1`로 상세 로그
+- **Godoc 추가**:
+  - 패키지 레벨 문서
+  - 모든 public 타입/함수에 문서화
+  - 반환값 설명: named returns 사용
+- **parseResponse 개선** ([fetcher.go:296-376](fetcher.go:296)):
+  - 반환값 추가: `(body, headers, error)`
+  - 테스트 가능성 향상
+
+#### Phase 5: ConnectionPool 테스트 작성
+**총 4개 테스트 추가 (모두 통과 ✅)**
+
+1. **TestConnectionPool_GetPut** ([fetcher_test.go:435-456](fetcher_test.go:435))
+   - 기본 Get/Put 동작 검증
+   - 빈 Pool에서 Get → nil 반환
+   - Put 후 Get → 연결 반환
+
+2. **TestConnectionPool_MaxPerHost** ([fetcher_test.go:458-472](fetcher_test.go:458))
+   - 최대 6개 연결 제한 검증
+   - 7번째 연결은 자동으로 닫힘
+
+3. **TestConnectionPool_MultipleHosts** ([fetcher_test.go:474-489](fetcher_test.go:474))
+   - 여러 호스트 독립적 관리
+   - host1의 연결이 host2에 영향 없음
+
+4. **TestConnectionPool_Close** ([fetcher_test.go:491-507](fetcher_test.go:491))
+   - 특정 호스트의 모든 연결 닫기
+   - Pool에서 제거 확인
+
+#### Go 언어 개념 학습
+- **동시성 제어**:
+  - `sync.Mutex`: 공유 자원 보호
+  - `Lock()` / `Unlock()`: Critical Section
+  - `defer Unlock()`: 패닉 안전성
+  - 경쟁 조건(Race Condition) 방지
+- **네트워크 프로그래밍**:
+  - `net.Conn` 인터페이스 재사용
+  - 연결 풀링 패턴
+  - 리소스 관리 (메모리 누수 방지)
+- **에러 처리**:
+  - `%w` 포맷: 에러 래핑 (error wrapping)
+  - `errors.Is()` / `errors.As()`: 에러 체인 검사
+  - Named return values: 명확한 반환값 문서화
+
+#### 문제 발견: Transfer-Encoding: chunked
+- **증상**: `example.org` 접속 시 프로그램 멈춤
+- **원인 분석**:
+  - 서버가 `Transfer-Encoding: chunked` 응답
+  - `Content-Length` 헤더 없음
+  - 현재 코드: `io.ReadAll()` 시도
+  - Keep-alive라서 EOF 안 옴 → 무한 대기
+- **HTTP Body 전송 방식**:
+  1. `Content-Length`: 정확한 바이트 수 (✅ 구현 완료)
+  2. `Transfer-Encoding: chunked`: 조각 전송 (⬜ 다음 작업)
+  3. `Connection: close`: 연결 끊어서 끝 표시 (구식)
+
+#### 다음 작업
+- **Transfer-Encoding: chunked 구현**:
+  - Chunked encoding 형식 이해
+  - Chunk size 파싱
+  - 여러 chunk 읽기
+  - 마지막 chunk (0\r\n) 감지
+  - Keep-Alive 유지하면서 body 읽기
+
+#### 설계 결정
+- **리팩토링 우선**: 코드 정리 후 새 기능 추가
+- **Before/After 방식**: 학생이 직접 타이핑하며 학습
+- **테스트 주도**: 기능 추가 전 테스트 작성
+
+#### 최종 테스트 현황
+- **총 44개 테스트** (43 pass, 1 skip)
+  - parseHTML: 5개
+  - NewURL: 8개
+  - parsePort: 6개
+  - parseHostPath: 6개
+  - FileFetcher: 4개
+  - DataFetcher: 6개
+  - HTTPFetcher: 5개
+  - ConnectionPool: 4개 (신규)

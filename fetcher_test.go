@@ -1,9 +1,11 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // ============================================
@@ -437,5 +439,160 @@ func TestViewSourceFetcher_InvalidFormat(t *testing.T) {
 	_, err = url.Request()
 	if err == nil {
 		t.Error("Request() should return error for view-source with no inner URL")
+	}
+}
+
+// ============================================
+// ConnectionPool 테스트
+// ============================================
+
+// mockAddr: 테스트용 가짜 net.Addr
+type mockAddr struct{}
+
+func (m *mockAddr) Network() string { return "tcp" }
+func (m *mockAddr) String() string  { return "mock:0" }
+
+// mockConn: 테스트용 가짜 net.Conn
+type mockConn struct {
+	closed bool
+	id     int // 연결 구분용
+}
+
+func (m *mockConn) Read(b []byte) (n int, err error)        { return 0, nil }
+func (m *mockConn) Write(b []byte) (n int, err error)       { return len(b), nil }
+func (m *mockConn) Close() error                            { m.closed = true; return nil }
+func (m *mockConn) LocalAddr() net.Addr                     { return &mockAddr{} }
+func (m *mockConn) RemoteAddr() net.Addr                    { return &mockAddr{} }
+func (m *mockConn) SetDeadline(t time.Time) error           { return nil }
+func (m *mockConn) SetReadDeadline(t time.Time) error       { return nil }
+func (m *mockConn) SetWriteDeadline(t time.Time) error      { return nil }
+
+// TestConnectionPool_GetPut 기본 Get/Put 동작
+func TestConnectionPool_GetPut(t *testing.T) {
+	pool := NewConnectionPool()
+	address := "example.com:80"
+
+	// 1. 빈 Pool에서 Get → 없어야 함
+	conn, found := pool.Get(address)
+	if found {
+		t.Error("Get() should return false for empty pool")
+	}
+	if conn != nil {
+		t.Error("Get() should return nil for empty pool")
+	}
+
+	// 2. Put으로 연결 저장
+	mockConn1 := &mockConn{id: 1}
+	pool.Put(address, mockConn1)
+
+	// 3. Get으로 가져오기
+	conn, found = pool.Get(address)
+	if !found {
+		t.Error("Get() should return true after Put()")
+	}
+	if conn != mockConn1 {
+		t.Error("Get() should return the same connection that was Put()")
+	}
+
+	// 4. 다시 Get → 없어야 함 (이미 꺼냈으므로)
+	conn, found = pool.Get(address)
+	if found {
+		t.Error("Get() should return false after already getting the connection")
+	}
+}
+
+// TestConnectionPool_MaxPerHost Pool이 6개로 제한되는지 테스트
+func TestConnectionPool_MaxPerHost(t *testing.T) {
+	pool := NewConnectionPool()
+	address := "example.com:80"
+
+	// 1. 10개 연결 Put
+	conns := make([]*mockConn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = &mockConn{id: i}
+		pool.Put(address, conns[i])
+	}
+
+	// 2. Pool에서 모두 Get (최대 6개만 있어야 함)
+	retrieved := 0
+	for {
+		_, found := pool.Get(address)
+		if !found {
+			break
+		}
+		retrieved++
+	}
+
+	if retrieved != 6 {
+		t.Errorf("Pool should contain max 6 connections, got %d", retrieved)
+	}
+
+	// 3. 초과분(7, 8, 9, 10번째)은 Close 되었어야 함
+	for i := 6; i < 10; i++ {
+		if !conns[i].closed {
+			t.Errorf("Connection %d should be closed (exceeded maxPerHost)", i)
+		}
+	}
+
+	// 4. Pool에 저장된 것들(0~5번째)은 Close 안 되었어야 함
+	for i := 0; i < 6; i++ {
+		if conns[i].closed {
+			t.Errorf("Connection %d should not be closed (within maxPerHost)", i)
+		}
+	}
+}
+
+// TestConnectionPool_MultiplHosts 여러 호스트 동시 관리
+func TestConnectionPool_MultipleHosts(t *testing.T) {
+	pool := NewConnectionPool()
+
+	address1 := "example.com:80"
+	address2 := "google.com:80"
+
+	// 각 호스트에 연결 저장
+	conn1 := &mockConn{id: 1}
+	conn2 := &mockConn{id: 2}
+	pool.Put(address1, conn1)
+	pool.Put(address2, conn2)
+
+	// 각 호스트에서 Get
+	retrieved1, found1 := pool.Get(address1)
+	retrieved2, found2 := pool.Get(address2)
+
+	if !found1 || !found2 {
+		t.Error("Get() should return connections for both hosts")
+	}
+
+	if retrieved1 != conn1 || retrieved2 != conn2 {
+		t.Error("Get() should return correct connection for each host")
+	}
+}
+
+// TestConnectionPool_Close 특정 호스트의 모든 연결 닫기
+func TestConnectionPool_Close(t *testing.T) {
+	pool := NewConnectionPool()
+	address := "example.com:80"
+
+	// 3개 연결 저장
+	conns := make([]*mockConn, 3)
+	for i := 0; i < 3; i++ {
+		conns[i] = &mockConn{id: i}
+		pool.Put(address, conns[i])
+	}
+
+	// Close 호출
+	pool.Close(address)
+
+	// 모두 닫혔어야 함
+	for i := 0; i < 3; i++ {
+		if !conns[i].closed {
+			t.Errorf("Connection %d should be closed after pool.Close()", i)
+		}
+	}
+
+	// Pool에서 Get → 없어야 함
+	_, found := pool.Get(address)
+	if found {
+		t.Error("Get() should return false after pool.Close()")
 	}
 }

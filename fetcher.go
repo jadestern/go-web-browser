@@ -6,10 +6,13 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // HTTP 관련 상수
@@ -25,10 +28,112 @@ const (
 	HeaderUserAgent  = "User-Agent"
 )
 
-// ConnectionClose HTTP 헤더 값
-const (
-	ConnectionClose = "close"
-)
+const MaxConnectionPerHost = 6
+
+var logger *log.Logger
+
+func init() {
+	if os.Getenv("DEBUG") != "" {
+		logger = log.New(os.Stderr, "[HTTP] ", log.Ltime)
+	} else {
+		logger = log.New(io.Discard, "", 0) // Silent by default
+	}
+}
+
+// ConnectionPool manages persistent HTTP connections for Keep-Alive.
+//
+// It maintains a pool of idle connections per server address, allowing
+// connection reuse across multiple HTTP requests to the same host.
+// This significantly reduces latency by avoiding repeated TCP handshakes.
+//
+// The pool is thread-safe and can be used concurrently from multiple goroutines.
+type ConnectionPool struct {
+	connections map[string][]net.Conn // "host:port" → []net.Conn (배열로 변경!)
+	mu          sync.Mutex            // 동시성 제어 (thread-safe)
+	maxPerHost  int                   // 서버당 최대 연결 수
+}
+
+// NewConnectionPool creates a new ConnectionPool with default settings.
+//
+// The pool will maintain up to MaxConnectionsPerHost idle connections
+// per server address. Connections exceeding this limit are closed immediately.
+func NewConnectionPool() *ConnectionPool {
+	return &ConnectionPool{
+		connections: make(map[string][]net.Conn),
+		maxPerHost:  MaxConnectionPerHost, // HTTP/1.1 권장사항: 서버당 최대 6개 연결
+	}
+}
+
+// Get retrieves an idle connection from the pool for the given address.
+//
+// It returns (conn, true) if an idle connection is available, or (nil, false)
+// if the pool is empty for this address. The retrieved connection is removed
+// from the pool (check-out pattern) and should be returned with Put after use.
+//
+// Get is safe for concurrent use.
+func (pool *ConnectionPool) Get(address string) (net.Conn, bool) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	conns := pool.connections[address]
+	if len(conns) == 0 {
+		// 사용 가능한 연결 없음
+		return nil, false
+	}
+
+	// 마지막 연결 꺼내기 (stack처럼 LIFO)
+	lastIdx := len(conns) - 1
+	conn := conns[lastIdx]
+	pool.connections[address] = conns[:lastIdx] // 제거
+
+	logger.Printf("♻️  기존 연결 재사용: %s (남은 연결: %d개)\n", address, len(conns)-1)
+	return conn, true
+}
+
+// Put returns a connection to the pool for future reuse.
+//
+// If the pool already contains maxPerHost connections for this address,
+// the connection is closed immediately to prevent resource leaks.
+// Otherwise, the connection is stored for reuse by future requests.
+//
+// Put is safe for concurrent use.
+func (pool *ConnectionPool) Put(address string, conn net.Conn) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	conns := pool.connections[address]
+
+	if len(conns) < pool.maxPerHost {
+		// 배열에 여유 있으면 저장
+		pool.connections[address] = append(conns, conn)
+		logger.Printf("💾 연결 저장: %s (총 %d/%d개)\n", address, len(conns)+1, pool.maxPerHost)
+	} else {
+		// Pool이 가득 차면 닫기 (누수 방지!)
+		conn.Close()
+		logger.Printf("🔌 Pool 가득 차서 연결 닫기: %s (%d/%d)\n", address, pool.maxPerHost, pool.maxPerHost)
+	}
+}
+
+// Close closes all idle connections for the given address and removes them from the pool.
+//
+// This is useful when you want to force new connections on the next request,
+// or when shutting down.
+//
+// Close is safe for concurrent use.
+func (pool *ConnectionPool) Close(address string) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	conns := pool.connections[address]
+	for _, conn := range conns {
+		conn.Close()
+	}
+	delete(pool.connections, address)
+	logger.Printf("🔌 모든 연결 닫기: %s (%d개)\n", address, len(conns))
+}
+
+// 전역 ConnectionPool 인스턴스
+var globalConnectionPool = NewConnectionPool()
 
 // Fetcher 인터페이스: URL에서 콘텐츠를 가져오는 역할을 추상화
 type Fetcher interface {
@@ -44,6 +149,7 @@ type DataFetcher struct{}
 // HTTPFetcher: http://, https:// 스킴을 처리하는 Fetcher 구현
 type HTTPFetcher struct{}
 
+// ViewSourceFetcher: view-source:// 스킴을 처리하는 Fetcher 구현
 type ViewSourceFetcher struct{}
 
 // fetcherRegistry: scheme에 따른 Fetcher를 등록하는 레지스트리
@@ -78,7 +184,7 @@ func (f *FileFetcher) Fetch(u *URL) (string, error) {
 		return "", fmt.Errorf("파일 읽기 실패: %v", err)
 	}
 
-	fmt.Printf("--- 파일 %s 읽기 완료 ---\n", filePath)
+	logger.Printf("--- 파일 %s 읽기 완료 ---\n", filePath)
 	return string(content), nil
 }
 
@@ -100,14 +206,14 @@ func (d *DataFetcher) Fetch(u *URL) (string, error) {
 			return "", fmt.Errorf("base64 디코딩 실패: %v", err)
 		}
 		data = string(decoded)
-		fmt.Printf("--- [data] base64 디코딩 완료 ---\n")
+		logger.Printf("--- [data] base64 디코딩 완료 ---\n")
 	} else {
 		decoded, err := url.QueryUnescape(data)
 		if err != nil {
 			decoded = data
 		}
 		data = decoded
-		fmt.Println("--- [data] URL 파싱 완료 ---")
+		logger.Println("--- [data] URL 파싱 완료 ---")
 	}
 
 	return data, nil
@@ -115,32 +221,34 @@ func (d *DataFetcher) Fetch(u *URL) (string, error) {
 
 // Fetch: HTTPFetcher의 Fetch 메서드 구현
 func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
-	var conn net.Conn
-	var err error
-
 	address := fmt.Sprintf("%s:%d", u.Host, u.Port)
 
-	if u.Scheme == SchemeHTTPS {
-		conn, err = tls.Dial("tcp", address, nil)
-	} else {
-		conn, err = net.Dial("tcp", address)
-	}
+	// 1. ConnectionPool에서 기존 연결 찾기
+	conn, found := globalConnectionPool.Get(address)
 
-	if err != nil {
-		return "", err
-	}
+	if !found {
+		// 2. Pool에 없으면 새로운 연결 생성
+		logger.Printf("🆕 새 연결 생성: %s\n", address)
+		var err error
 
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			fmt.Printf("연결 종료 에러: %v\n", closeErr)
+		if u.Scheme == SchemeHTTPS {
+			conn, err = tls.Dial("tcp", address, nil)
+		} else {
+			conn, err = net.Dial("tcp", address)
 		}
-	}()
+
+		if err != nil {
+			return "", err
+		}
+	}
+	// (found == true인 경우는 Get()에서 "♻️ 기존 연결 재사용" 메시지 출력함)
 
 	// HTTP 요청 메시지 만들기
 	headers := map[string]string{
-		HeaderHost:       u.Host,
-		HeaderConnection: ConnectionClose,
-		HeaderUserAgent:  UserAgent,
+		HeaderHost: u.Host,
+		// Connection: close 헤더 제거!
+		// → HTTP/1.1의 기본 동작이 keep-alive이므로 생략
+		HeaderUserAgent: UserAgent,
 	}
 
 	requestLine := fmt.Sprintf("GET %s %s\r\n", u.Path, HTTPVersion)
@@ -156,64 +264,136 @@ func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	request := headerLines.String()
 
 	// 서버에 메시지 보내기
-	_, err = conn.Write([]byte(request))
+	_, err := conn.Write([]byte(request))
 	if err != nil {
+		conn.Close() // 전송 실패 시 연결 닫기
 		return "", err
 	}
 
 	// 서버의 대답(응답) 읽기
-	fmt.Printf("--- [%s:%d] 연결 및 요청 완료 ---\n", u.Host, u.Port)
+	logger.Printf("--- [%s:%d] 연결 및 요청 완료 ---\n", u.Host, u.Port)
 
-	return parseResponse(conn)
+	body, _, err := parseResponse(conn)
+	if err != nil {
+		conn.Close() // 응답 파싱 실패 시 연결 닫기
+		return "", err
+	}
+
+	// 3. 성공하면 Pool에 연결 저장 (재사용을 위해)
+	globalConnectionPool.Put(address, conn)
+
+	return body, nil
 }
 
-func parseResponse(r io.Reader) (string, error) {
+// parseResponse parses an HTTP response and returns the body and headers.
+//
+// It reads the status line, parses all headers into a map, and reads the body.
+// If a Content-Length header is present, it reads exactly that many bytes,
+// allowing the connection to be reused (Keep-Alive). Otherwise, it reads
+// until EOF, which closes the connection.
+//
+// Returns:
+//   - body: response body as string
+//   - headers: map of header names to values
+//   - error: any error encountered during parsing
+func parseResponse(r io.Reader) (body string, headers map[string]string, err error) {
 	reader := bufio.NewReader(r)
 
+	// 1. Status Line 읽기 (예: HTTP/1.1 200 OK)
 	statusLine, err := reader.ReadString('\n')
 	if err != nil {
-		return "", fmt.Errorf("상태 라인 읽기 실패: %w", err)
+		return "", nil, fmt.Errorf("상태 라인 읽기 실패: %w", err)
 	}
-	_ = statusLine
+	_ = statusLine // 현재는 상태 코드를 검사하지 않지만, 나중에 확장을 위해 저장
 
+	// 2. Headers 파싱하기 (건너뛰기 → 파싱으로 변경!)
+	headers = make(map[string]string) // 헤더를 저장할 map
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
-			return "", fmt.Errorf("헤더 읽기 실패: %w", err)
+			return "", nil, fmt.Errorf("헤더 읽기 실패: %w", err)
 		}
+
+		// 빈 줄이 나오면 헤더 끝
 		if line == "\r\n" || line == "\n" {
 			break
 		}
+
+		// 헤더 파싱: "Content-Length: 1234\r\n" → key: "Content-Length", value: "1234"
+		line = strings.TrimSpace(line) // 앞뒤 공백 제거
+		colonIdx := strings.Index(line, ":")
+		if colonIdx > 0 {
+			key := strings.TrimSpace(line[:colonIdx])     // "Content-Length"
+			value := strings.TrimSpace(line[colonIdx+1:]) // "1234"
+			headers[key] = value
+		}
 	}
 
-	bodyBytes, err := io.ReadAll(reader)
-	if err != nil && err != io.EOF {
-		return "", fmt.Errorf("바디 읽기 실패: %w", err)
+	// 디버깅: 서버가 keep-alive로 응답했는지 확인
+	if connHeader, ok := headers["Connection"]; ok {
+		logger.Printf("🔌 서버 응답 Connection 헤더: %s\n", connHeader)
+	} else {
+		fmt.Println("🔌 Connection 헤더 없음 (HTTP/1.1 기본 = keep-alive)")
 	}
 
-	return string(bodyBytes), nil
+	// 3. Body 읽기: Content-Length에 따라 다르게 처리
+	var bodyBytes []byte
+
+	if contentLengthStr, ok := headers["Content-Length"]; ok {
+		// Content-Length가 있으면: 정확히 그만큼만 읽기
+		logger.Printf("📏 Content-Length 헤더 발견: %s 바이트\n", contentLengthStr)
+
+		// string → int 변환 (예: "1234" → 1234)
+		contentLength, parseErr := strconv.Atoi(contentLengthStr)
+		if parseErr != nil || contentLength < 0 {
+			return "", headers, fmt.Errorf("Content-Length 파싱 실패: %v", parseErr)
+		}
+
+		// 정확히 contentLength 바이트만 읽기
+		bodyBytes = make([]byte, contentLength) // N바이트 버퍼 생성
+		_, err = io.ReadFull(reader, bodyBytes) // 정확히 N바이트 읽기
+		if err != nil {
+			return "", headers, fmt.Errorf("바디 읽기 실패 (Content-Length: %d): %w", contentLength, err)
+		}
+
+		logger.Printf("✅ %d 바이트 정확히 읽음 (소켓 유지 가능!)\n", contentLength)
+
+	} else {
+		// Content-Length가 없으면: 기존 방식 (io.ReadAll)
+		logger.Println("⚠️  Content-Length 없음, 연결 끝까지 읽기")
+		bodyBytes, err = io.ReadAll(reader)
+		if err != nil && err != io.EOF {
+			return "", headers, fmt.Errorf("바디 읽기 실패: %w", err)
+		}
+	}
+
+	return string(bodyBytes), headers, nil
 }
 
+// Fetch: ViewSourceFetcher의 Fetch 메서드 구현
 func (v *ViewSourceFetcher) Fetch(u *URL) (string, error) {
+	// Path에는 내부 URL 전체가 들어있음 (예: "http://example.org/")
 	innerURLStr := u.Path
 
 	if innerURLStr == "" {
-		return "", fmt.Errorf("view-source: 내부 URL 이 없습니다")
+		return "", fmt.Errorf("view-source: 내부 URL이 없습니다")
 	}
 
+	// 내부 URL 파싱
 	innerURL, err := NewURL(innerURLStr)
 	if err != nil {
 		return "", fmt.Errorf("view-source: 내부 URL 파싱 실패: %v", err)
 	}
 
+	// 내부 URL로 콘텐츠 가져오기 (원본 그대로 반환)
 	content, err := innerURL.Request()
 	if err != nil {
 		return "", fmt.Errorf("view-source: 내부 URL 요청 실패: %v", err)
 	}
 
-	fmt.Println("--- [view-source] 원본 소스 반환 ---")
+	logger.Println("--- [view-source] 원본 소스 반환 ---")
 	return content, nil
 }
