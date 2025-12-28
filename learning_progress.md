@@ -815,3 +815,76 @@
   - DataFetcher: 6개
   - HTTPFetcher: 5개
   - ConnectionPool: 4개 (신규)
+
+---
+
+## 다음 세션 작업 가이드
+
+### 현재 상태 (2025-12-28)
+
+**✅ 완료된 작업**:
+- HTTP Keep-Alive 기본 구현 (ConnectionPool + Content-Length 기반 읽기)
+- 리팩토링 완료 (logging, Godoc, parseResponse에서 headers 반환)
+- ConnectionPool 단위 테스트 4개 추가
+- learning_progress.md 업데이트
+- Git 커밋: `feat(http): implement Keep-Alive connection pooling`
+
+**❌ 발견한 문제**:
+- `example.org` 접속 시 프로그램 멈춤
+- **원인**: 서버가 `Transfer-Encoding: chunked` 사용
+- **현상**: Content-Length 없어서 `io.ReadAll()` 호출 → Keep-alive라서 EOF 안 옴 → 무한 대기
+
+**🎯 다음 작업**:
+- Transfer-Encoding: chunked 구현
+
+### Chunked Encoding 구현 가이드
+
+**HTTP Chunked Encoding 형식**:
+```
+<16진수-크기>\r\n
+<데이터>\r\n
+<16진수-크기>\r\n
+<데이터>\r\n
+0\r\n
+\r\n
+```
+
+**예시**:
+```
+5\r\n
+Hello\r\n
+6\r\n
+ World\r\n
+0\r\n
+\r\n
+```
+→ 결과: "Hello World"
+
+**구현 단계**:
+1. `Transfer-Encoding: chunked` 헤더 확인
+2. 반복:
+   - 16진수 chunk 크기 읽기 (예: "1a3\r\n")
+   - `strconv.ParseInt(크기, 16, 64)`: 16진수 → 10진수 변환
+   - chunk 크기만큼 데이터 읽기
+   - 끝의 `\r\n` 읽어서 버리기
+   - chunk 크기가 0이면 종료
+3. 마지막 `\r\n` 읽기
+
+**테스트 전략**:
+- `httptest.NewServer`로 chunked 응답 생성
+- 여러 chunk 크기 테스트 (작은/큰/빈 chunk)
+- Edge case: 1바이트 chunk, 큰 데이터 등
+
+**작업할 파일**:
+- `llm/fetcher.go` - parseResponse() 함수 수정
+- `fetcher_test.go` - chunked encoding 테스트 추가
+
+**참고**:
+- RFC 7230 Section 4.1: Chunked Transfer Coding
+- `curl -i http://example.org` 실행하면 실제 chunked 응답 확인 가능
+
+**작업 방식**:
+1. llm/ 디렉토리에서 구현 및 테스트
+2. 테스트 통과 확인
+3. Before/After instructions 제공
+4. 학생이 root 파일에 직접 타이핑하며 학습
