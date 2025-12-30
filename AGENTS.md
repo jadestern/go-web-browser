@@ -75,46 +75,173 @@ When exploring or adding code:
 
 ### Integration Instructions Format
 
-When providing integration instructions, use the **Before/After format** with detailed explanations:
+When providing integration instructions, use the **Before/After format** with focused changes:
 
 **Structure for each change:**
-1. **Feature description**: What functionality is being added/changed
-2. **Why it's needed**: Explain the purpose and reasoning
-3. **Before code**: Show the original code from `browser.go`
-4. **After code**: Show what the code should look like with changes (remove `_llm` postfix)
+1. **Header**: `### Change N: [Brief Title]`
+2. **목적 (Purpose)**: One-line explanation of what and why
+3. **위치 (Location)**: File name and approximate line number
+4. **Before**: Original code (only the part being changed)
+5. **After**: Modified code (easy to copy-paste)
 
-**Example format:**
+**Key Principles:**
+- ✅ **Focus on changed parts only** - don't show entire functions unless necessary
+- ✅ **Copy-paste friendly** - Before/After should be directly usable
+- ✅ **Clear boundaries** - show where to add new functions
+- ✅ **Contextual hints** - use `// ... (기존 코드 유지)` for unchanged parts
+- ❌ **Avoid diff markers** (+/-) - they make copying difficult
+- ❌ **Don't use line-by-line diffs** - show complete blocks instead
+
+**Example 1: Modifying existing code**
 
 ```markdown
-### Change 1: [Feature Name]
+### Change 1: parseResponse 함수 시그니처
 
-**What:** Brief description of the feature
-**Why:** Explanation of why this change is necessary
+**목적:** HTTP 응답에서 상태 코드를 파싱하여 반환
+
+**위치:** `fetcher.go` - parseResponse 함수 (line 465 부근)
 
 **Before:**
 ```go
-// Original code from browser.go
-func OriginalFunction() {
-    // existing code
+func parseResponse(r io.Reader) (body string, headers map[string]string, err error) {
+	reader := bufio.NewReader(r)
+
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read status line: %w", err)
+	}
+	_ = statusLine // TODO: parse and return status code
+
+	// ... (나머지 코드)
 }
 ```
 
 **After:**
 ```go
-// Modified code (without _llm postfix)
-func OriginalFunction() {
-    // new code added
-    // existing code
+func parseResponse(r io.Reader) (statusCode int, body string, headers map[string]string, err error) {
+	reader := bufio.NewReader(r)
+
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		return 0, "", nil, fmt.Errorf("failed to read status line: %w", err)
+	}
+
+	// Parse status code from status line
+	statusLine = strings.TrimSpace(statusLine)
+	parts := strings.SplitN(statusLine, " ", 3)
+	if len(parts) < 2 {
+		return 0, "", nil, fmt.Errorf("invalid status line: %q", statusLine)
+	}
+
+	statusCode, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, "", nil, fmt.Errorf("invalid status code: %w", err)
+	}
+
+	logger.Printf("Status: %d", statusCode)
+
+	// ... (나머지 코드)
 }
 ```
 ```
 
-**Key principles:**
-- Don't just say "add this at line X" - explain the **purpose and context**
-- Show **complete code blocks** for Before/After, not just snippets
-- Explain **why** each change is necessary for understanding
-- Include **comments** in the After code to guide the student
-- For new methods/functions, show where they should be placed relative to existing code
+**Example 2: Adding new function**
+
+```markdown
+### Change 2: resolveURL 함수 추가
+
+**목적:** 상대 URL을 절대 URL로 변환
+
+**위치:** `fetcher.go` - HTTPFetcher.Fetch 메서드 바로 아래에 추가
+
+```go
+// resolveURL resolves a potentially relative URL against a base URL.
+//
+// If location is an absolute URL (http:// or https://), parse directly.
+// If location is a relative URL (/path), use base URL's scheme and host.
+func resolveURL(base *URL, location string) (*URL, error) {
+	// Absolute URL: parse directly
+	if strings.HasPrefix(location, "http://") || strings.HasPrefix(location, "https://") {
+		return NewURL(location)
+	}
+
+	// Relative URL: combine with base
+	if strings.HasPrefix(location, "/") {
+		var absoluteURL string
+		if base.Scheme == SchemeHTTPS && base.Port == 443 {
+			absoluteURL = fmt.Sprintf("https://%s%s", base.Host, location)
+		} else if base.Scheme == SchemeHTTP && base.Port == 80 {
+			absoluteURL = fmt.Sprintf("http://%s%s", base.Host, location)
+		} else {
+			absoluteURL = fmt.Sprintf("%s://%s:%d%s", base.Scheme, base.Host, base.Port, location)
+		}
+		return NewURL(absoluteURL)
+	}
+
+	return nil, fmt.Errorf("unsupported Location format: %q", location)
+}
+```
+```
+
+**Example 3: Complete function replacement**
+
+```markdown
+### Change 3: HTTPFetcher.Fetch 메서드 전체 교체
+
+**목적:** 리다이렉트 자동 처리 로직 추가
+
+**위치:** `fetcher.go` - HTTPFetcher.Fetch 메서드 (line 231 부근)
+
+**Before:**
+```go
+func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
+	address := fmt.Sprintf("%s:%d", u.Host, u.Port)
+	// ... (긴 구현 코드)
+	return body, nil
+}
+```
+
+**After:**
+```go
+func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
+	const maxRedirects = 10
+	currentURL := u
+
+	for i := 0; i < maxRedirects; i++ {
+		statusCode, body, headers, err := h.doRequest(currentURL)
+		if err != nil {
+			return "", err
+		}
+
+		// 리다이렉트가 아니면 성공
+		if statusCode < 300 || statusCode >= 400 {
+			return body, nil
+		}
+
+		// 리다이렉트 처리
+		location := headers["Location"]
+		if location == "" {
+			return "", fmt.Errorf("redirect without Location header")
+		}
+
+		nextURL, err := resolveURL(currentURL, location)
+		if err != nil {
+			return "", err
+		}
+
+		currentURL = nextURL
+	}
+
+	return "", fmt.Errorf("too many redirects")
+}
+```
+```
+
+**Tips for Students:**
+- 📋 Copy the **After** code directly into your file
+- 🔍 Use the **위치** (location) hint to find where to make changes
+- 💡 Read the **목적** to understand why this change is needed
+- ✏️ Type it manually, don't copy-paste (better learning!)
 
 ### How Student Applies Changes to Root
 
@@ -163,6 +290,55 @@ When the user says **"wrapup"**, it means:
 - Add what was learned to the learning notes section
 - Update the roadmap progress
 - **Do NOT** make any code changes during wrapup - only documentation updates
+
+### 4. Coding Guidelines
+
+#### Korean Language Usage
+
+**All user-facing messages should be in Korean:**
+
+- ✅ **Logger messages** (HTTP, debug logs)
+- ✅ **Error messages** (returned to user)
+- ✅ **User prompts** (console output)
+- ❌ **Code comments** (keep in English for code clarity)
+- ❌ **Variable/function names** (keep in English)
+
+**Examples:**
+
+```go
+// Good - Korean logger messages
+logger.Printf("새 연결 생성: %s", address)
+logger.Printf("리다이렉트 %d: %d -> %s", i+1, statusCode, location)
+logger.Printf("%d 바이트 읽음 (Content-Length)", contentLength)
+
+// Good - Korean error messages
+return "", fmt.Errorf("리다이렉트 응답에 Location 헤더가 없습니다 (status %d)", statusCode)
+return "", fmt.Errorf("최대 리다이렉트 횟수 초과 (최대 %d회)", maxRedirects)
+return nil, fmt.Errorf("지원하지 않는 Location 형식: %q", location)
+
+// Good - Korean user-facing output
+fmt.Printf("브라우징: %s\n", urlObj.String())
+fmt.Printf("요청 실패 (%s): %v\n", urlObj.String(), err)
+
+// Good - English code comments
+// Parse status code from status line
+// Format: "HTTP/1.1 200 OK\r\n"
+
+// Bad - English error messages (avoid)
+return "", fmt.Errorf("redirect without Location header")  // ❌
+return "", fmt.Errorf("too many redirects")  // ❌
+```
+
+**Rationale:**
+- This is a Korean learning project for Korean students
+- Korean messages improve readability and debugging experience
+- Code remains internationally readable (English identifiers)
+- Comments in English maintain code portability
+
+**Format consistency:**
+- Use informal Korean (반말) for logs: "생성", "읽음", "완료"
+- Use polite form for user errors: "~습니다", "~없습니다"
+- Include technical details in parentheses: "최대 10회", "status 302"
 
 ## Build and Run Commands
 

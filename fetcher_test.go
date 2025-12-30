@@ -711,3 +711,188 @@ func TestHTTPFetcher_ChunkedEncodingLarge(t *testing.T) {
 		t.Errorf("content length = %d; want %d", len(content), len(expected))
 	}
 }
+
+// ============================================
+// Redirect 테스트
+// ============================================
+
+// TestHTTPFetcher_Redirect302: 기본 302 리다이렉트
+func TestHTTPFetcher_Redirect302(t *testing.T) {
+	// 최종 페이지
+	finalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<h1>Final Page</h1>"))
+	}))
+	defer finalServer.Close()
+
+	// 리다이렉트 서버
+	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", finalServer.URL)
+		w.WriteHeader(http.StatusFound) // 302
+	}))
+	defer redirectServer.Close()
+
+	url, err := NewURL(redirectServer.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	expected := "<h1>Final Page</h1>"
+	if content != expected {
+		t.Errorf("content = %q; want %q", content, expected)
+	}
+}
+
+// TestHTTPFetcher_RedirectRelativeURL: 상대 URL 리다이렉트 (/)
+func TestHTTPFetcher_RedirectRelativeURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			// 상대 경로로 리다이렉트
+			w.Header().Set("Location", "/final")
+			w.WriteHeader(http.StatusFound)
+		} else if r.URL.Path == "/final" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<h1>Final Page</h1>"))
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	url, err := NewURL(server.URL + "/redirect")
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	expected := "<h1>Final Page</h1>"
+	if content != expected {
+		t.Errorf("content = %q; want %q", content, expected)
+	}
+}
+
+// TestHTTPFetcher_RedirectChain: 연쇄 리다이렉트 (A → B → C)
+func TestHTTPFetcher_RedirectChain(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/step1":
+			w.Header().Set("Location", "/step2")
+			w.WriteHeader(http.StatusFound)
+		case "/step2":
+			w.Header().Set("Location", "/step3")
+			w.WriteHeader(http.StatusFound)
+		case "/step3":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<h1>Step 3 Final</h1>"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	url, err := NewURL(server.URL + "/step1")
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	expected := "<h1>Step 3 Final</h1>"
+	if content != expected {
+		t.Errorf("content = %q; want %q", content, expected)
+	}
+}
+
+// TestHTTPFetcher_RedirectTooMany: 최대 리다이렉트 초과
+func TestHTTPFetcher_RedirectTooMany(t *testing.T) {
+	redirectCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectCount++
+		// 무한 리다이렉트 (자기 자신으로)
+		w.Header().Set("Location", r.URL.Path)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+
+	url, err := NewURL(server.URL + "/loop")
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	_, err = url.Request()
+	if err == nil {
+		t.Error("Request() should return error for too many redirects")
+	}
+
+	// 에러 메시지에 "리다이렉트" 또는 "redirect" 포함되어야 함
+	errMsg := strings.ToLower(err.Error())
+	if !strings.Contains(errMsg, "redirect") && !strings.Contains(errMsg, "리다이렉트") {
+		t.Errorf("Error should mention 'redirect' or '리다이렉트', got: %v", err)
+	}
+}
+
+// TestHTTPFetcher_RedirectNoLocation: Location 헤더 없는 리다이렉트
+func TestHTTPFetcher_RedirectNoLocation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Location 헤더 없이 302 응답
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+
+	url, err := NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	_, err = url.Request()
+	if err == nil {
+		t.Error("Request() should return error for redirect without Location header")
+	}
+
+	// 에러 메시지에 "Location" 포함되어야 함
+	if !strings.Contains(err.Error(), "Location") {
+		t.Errorf("Error should mention 'Location', got: %v", err)
+	}
+}
+
+// TestHTTPFetcher_Redirect301: 영구 리다이렉트 (301)
+func TestHTTPFetcher_Redirect301(t *testing.T) {
+	finalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<h1>Permanent Location</h1>"))
+	}))
+	defer finalServer.Close()
+
+	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", finalServer.URL)
+		w.WriteHeader(http.StatusMovedPermanently) // 301
+	}))
+	defer redirectServer.Close()
+
+	url, err := NewURL(redirectServer.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	content, err := url.Request()
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	expected := "<h1>Permanent Location</h1>"
+	if content != expected {
+		t.Errorf("content = %q; want %q", content, expected)
+	}
+}

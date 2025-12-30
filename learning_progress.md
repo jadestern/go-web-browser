@@ -56,7 +56,12 @@
   - ✅ ConnectionPool 패턴 구현 ([fetcher.go:37-104](fetcher.go:37))
   - ✅ Content-Length 기반 body 읽기 ([fetcher.go:440-454](fetcher.go:440))
   - ✅ Transfer-Encoding: chunked ([fetcher.go:296-362](fetcher.go:296), [fetcher.go:429-437](fetcher.go:429))
-- ⬜ **리다이렉트 처리**: 3xx 응답 코드 처리
+- **✅ 리다이렉트 처리**: 3xx 응답 코드 자동 처리 (완료: 2025-12-30)
+  - ✅ 상태 코드 파싱 ([fetcher.go:477-513](fetcher.go:477))
+  - ✅ Location 헤더 처리 ([fetcher.go:250](fetcher.go:250))
+  - ✅ 절대/상대 URL 변환 ([fetcher.go:269-301](fetcher.go:269))
+  - ✅ 최대 10회 리다이렉트 제한 ([fetcher.go:233](fetcher.go:233))
+  - ✅ 헤더 대소문자 정규화 ([fetcher.go:469](fetcher.go:469))
 - ⬜ **쿠키 관리**: Cookie 헤더 처리
 - ⬜ **캐싱**: 응답 캐시 및 재사용
 
@@ -441,15 +446,21 @@
   - ✅ Content-Length 기반 body 읽기
   - ✅ Transfer-Encoding: chunked 구현
   - ✅ 아키텍처 리팩토링 (parseResponse 함수 분해)
+- HTTP 리다이렉트 자동 처리 - 2025-12-30 ✅
+  - ✅ 3xx 상태 코드 자동 처리 (301, 302, 303, 307, 308)
+  - ✅ Location 헤더 파싱 및 URL 변환
+  - ✅ 절대/상대 URL 처리 (resolveURL)
+  - ✅ 최대 10회 리다이렉트 제한
+  - ✅ HTTP 헤더 대소문자 정규화 (RFC 7230)
+  - ✅ 한글 에러/로그 메시지
   - ✅ 테스트 47개 (46 pass, 1 skip)
 
 **다음 후보**:
-1. HTTP 리다이렉트 처리 (3xx)
-2. 쿠키 관리
-3. HTTP 캐싱
-4. **CHAPTER 2 시작** (GUI 렌더링) - 추천!
+1. 쿠키 관리 (Cookie/Set-Cookie 헤더)
+2. HTTP 캐싱 (Cache-Control, ETag)
+3. **CHAPTER 2 시작** (GUI 렌더링) - 추천!
 
-**전체 진행률**: CHAPTER 1 완료 + 고급 HTTP 기능 (~8%), 다음은 GUI 렌더링
+**전체 진행률**: CHAPTER 1 완료 + 고급 HTTP 기능 (Keep-Alive, Chunked, Redirect) (~10%), 다음은 GUI 렌더링
 
 ---
 
@@ -842,3 +853,113 @@
 - HTTP 네트워킹은 충분히 학습함
 - 실제 브라우저처럼 화면에 표시하는 것이 더 흥미로울 것
 - 리다이렉트/쿠키/캐싱은 나중에 필요할 때 추가 가능
+
+---
+
+### 2025-12-30: HTTP 리다이렉트 자동 처리 구현
+
+#### Phase 1: 리다이렉트 기본 구현
+- **문제 인식**: 3xx 응답 코드 자동 처리 필요
+  - HTTP 리다이렉트: 301 (영구), 302 (임시), 303, 307, 308
+  - Location 헤더: 리다이렉트 대상 URL 지정
+  - 절대 URL vs 상대 URL 처리 필요
+- **상태 코드 파싱** ([fetcher.go:477-513](fetcher.go:477)):
+  - parseResponse 함수 시그니처 변경: statusCode 반환값 추가
+  - `strings.SplitN()`: 상태 라인을 공백으로 분리
+  - `strconv.Atoi()`: 상태 코드 문자열 → 정수
+  - 형식: "HTTP/1.1 302 Found\r\n"
+- **리다이렉트 루프 구현** ([fetcher.go:232-267](fetcher.go:232)):
+  - HTTPFetcher.Fetch를 리다이렉트 처리 루프로 변경
+  - 최대 10회 제한으로 무한 루프 방지
+  - 3xx 응답 시 Location 헤더 확인
+  - 2xx 응답 시 성공으로 간주
+
+#### Phase 2: URL 변환 로직
+- **절대/상대 URL 처리** ([fetcher.go:269-301](fetcher.go:269)):
+  - `resolveURL()` 함수 추가
+  - 절대 URL (http://, https://): 직접 파싱
+  - 상대 URL (/path): base URL의 scheme/host 사용
+  - 기본 포트 처리: HTTP:80, HTTPS:443은 생략
+- **doRequest 헬퍼 함수** ([fetcher.go:303-408](fetcher.go:303)):
+  - 단일 HTTP 요청 로직 분리
+  - Fetch 함수를 orchestrator로 변경
+  - ConnectionPool과 통합
+  - statusCode, body, headers, error 반환
+
+#### Phase 3: Priority 1 리팩토링
+- **헤더 대소문자 정규화** ([fetcher.go:469](fetcher.go:469)):
+  - 문제: HTTP 헤더는 대소문자 구분 없음 (RFC 7230)
+  - 해결: readHeaders에서 모든 헤더 키를 소문자로 정규화
+  - `strings.ToLower(key)`: "Content-Length" → "content-length"
+  - 모든 헤더 접근을 소문자로 통일
+- **한글 메시지 적용**:
+  - 에러 메시지: "리다이렉트 응답에 Location 헤더가 없습니다"
+  - 로그 메시지: "리다이렉트 %d: %d -> %s"
+  - 사용자 친화적: 기술 상세는 괄호에 표시
+  - 형식: 반말 (로그), 존댓말 (에러)
+
+#### 테스트 작성 (TDD)
+**리다이렉트 테스트 6개 추가** ([fetcher_test.go](fetcher_test.go)):
+1. `TestHTTPFetcher_Redirect302`: 기본 302 리다이렉트
+2. `TestHTTPFetcher_RedirectRelativeURL`: 상대 경로 (/final)
+3. `TestHTTPFetcher_RedirectChain`: 다중 리다이렉트 (A→B→C)
+4. `TestHTTPFetcher_RedirectTooMany`: 최대 10회 제한 검증
+5. `TestHTTPFetcher_RedirectNoLocation`: Location 없음 에러
+6. `TestHTTPFetcher_Redirect301`: 301 영구 리다이렉트
+
+**실제 URL 테스트**:
+- `http://browser.engineering/redirect` → 302 → /redirect2
+- `http://browser.engineering/redirect2` → 302 → /redirect3
+- `http://browser.engineering/redirect3` → 200 (성공)
+
+#### Go 언어 개념 학습
+- **for 루프 vs 재귀**:
+  - Go는 꼬리 재귀 최적화 없음
+  - for 루프가 더 효율적이고 명확
+  - 재귀보다 스택 오버플로 위험 없음
+- **HTTP 스펙 준수**:
+  - RFC 7230: 헤더는 대소문자 구분 안 함
+  - Location 헤더 필수 (3xx 응답 시)
+  - 리다이렉트 체인 제한 (보안)
+- **한글 메시지 설계**:
+  - 로그: 반말 형태 (간결, "생성", "읽음")
+  - 에러: 존댓말 형태 (공손, "~습니다")
+  - 기술 정보: 괄호로 보조 설명
+
+#### AGENTS.md 업데이트
+- **Integration Instructions Format**:
+  - Before/After 형식에서 focused changes로 개선
+  - 목적(目的), 위치(位置) 섹션 추가
+  - copy-paste 친화적 형식
+  - diff 마커 제거 (복사 방해)
+- **Korean Language Guidelines**:
+  - 사용자 메시지 한글화 규칙 명시
+  - 로그/에러 메시지 형식 가이드
+  - 코드 주석은 영어 유지
+- **Logger 기본값 변경**:
+  - DEBUG → PRODUCTION 환경 변수로 전환
+  - 기본값: verbose (학습에 유리)
+  - 프로덕션: PRODUCTION=1로 silent
+
+#### 설계 패턴
+- **Orchestrator 패턴**:
+  - Fetch: 리다이렉트 루프 관리
+  - doRequest: 단일 요청 처리
+  - resolveURL: URL 변환 전략
+- **관심사 분리**:
+  - 각 함수가 명확한 단일 책임
+  - 테스트 용이성 향상
+  - 재사용성 극대화
+
+#### 최종 결과
+- **테스트**: 47개 (46 pass, 1 skip)
+- **browser.engineering URL**: 리다이렉트 체인 정상 작동
+- **학습 개념**:
+  - HTTP 3xx 리다이렉트 프로토콜
+  - Location 헤더 처리
+  - 절대/상대 URL 변환
+  - HTTP 헤더 대소문자 정규화 (RFC 준수)
+  - 한글 메시지 로컬라이제이션
+  - for 루프 vs 재귀 (Go 최적화)
+
+---

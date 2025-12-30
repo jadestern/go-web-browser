@@ -44,11 +44,12 @@ const MaxConnectionsPerHost = 6
 var logger *log.Logger
 
 func init() {
-	// Enable logging only if DEBUG environment variable is set
-	if os.Getenv("DEBUG") != "" {
-		logger = log.New(os.Stderr, "[HTTP] ", log.Ltime)
+	// Enable logging by default (for development)
+	// Disable only if PRODUCTION environment variable is set
+	if os.Getenv("PRODUCTION") != "" {
+		logger = log.New(io.Discard, "", 0) // Silent in production
 	} else {
-		logger = log.New(io.Discard, "", 0) // Silent by default
+		logger = log.New(os.Stderr, "[HTTP] ", log.Ltime) // Verbose by default
 	}
 }
 
@@ -230,6 +231,77 @@ func (d *DataFetcher) Fetch(u *URL) (string, error) {
 
 // Fetch: HTTPFetcher의 Fetch 메서드 구현
 func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
+	const maxRedirects = 10
+	currentURL := u
+
+	// 리다이렉트 루프: 최대 10번까지 리다이렉트를 따라감
+	for i := 0; i < maxRedirects; i++ {
+		statusCode, body, headers, err := h.doRequest(currentURL)
+		if err != nil {
+			return "", err
+		}
+
+		// 리다이렉트가 아니면 성공
+		if statusCode < 300 || statusCode >= 400 {
+			return body, nil
+		}
+
+		// 리다이렉트 처리 (300-399)
+		location := headers["location"]
+		if location == "" {
+			return "", fmt.Errorf("리다이렉트 응답에 Location 헤더가 없습니다 (status %d)", statusCode)
+		}
+
+		logger.Printf("리다이렉트 %d: %d -> %s", i+1, statusCode, location)
+
+		// Location을 절대 URL로 변환
+		nextURL, err := resolveURL(currentURL, location)
+		if err != nil {
+			return "", fmt.Errorf("리다이렉트 URL 변환 실패 %q: %w", location, err)
+		}
+
+		currentURL = nextURL
+	}
+
+	return "", fmt.Errorf("최대 리다이렉트 횟수 초과 (최대 %d회)", maxRedirects)
+}
+
+// resolveURL resolves a potentially relative URL against a base URL.
+//
+// If location is an absolute URL (starts with http:// or https://), it is parsed directly.
+// If location is a relative URL (starts with /), it uses the base URL's scheme and host.
+//
+// Examples:
+//   - resolveURL("http://example.com/page", "https://other.com/new") -> "https://other.com/new"
+//   - resolveURL("http://example.com/page", "/new") -> "http://example.com/new"
+func resolveURL(base *URL, location string) (*URL, error) {
+	// Absolute URL: parse directly
+	if strings.HasPrefix(location, "http://") || strings.HasPrefix(location, "https://") {
+		return NewURL(location)
+	}
+
+	// Relative URL: use base URL's scheme and host
+	if strings.HasPrefix(location, "/") {
+		// Construct absolute URL: scheme://host:port/path
+		var absoluteURL string
+		if base.Scheme == SchemeHTTPS && base.Port == 443 {
+			// HTTPS default port: omit :443
+			absoluteURL = fmt.Sprintf("https://%s%s", base.Host, location)
+		} else if base.Scheme == SchemeHTTP && base.Port == 80 {
+			// HTTP default port: omit :80
+			absoluteURL = fmt.Sprintf("http://%s%s", base.Host, location)
+		} else {
+			// Non-default port: include it
+			absoluteURL = fmt.Sprintf("%s://%s:%d%s", base.Scheme, base.Host, base.Port, location)
+		}
+		return NewURL(absoluteURL)
+	}
+
+	return nil, fmt.Errorf("지원하지 않는 Location 형식: %q (절대 URL 또는 상대 경로가 아님)", location)
+}
+
+// doRequest performs a single HTTP request and returns status code, body, headers
+func (h *HTTPFetcher) doRequest(u *URL) (int, string, map[string]string, error) {
 	address := fmt.Sprintf("%s:%d", u.Host, u.Port)
 
 	// 1. ConnectionPool에서 기존 연결 찾기
@@ -247,7 +319,7 @@ func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 		}
 
 		if err != nil {
-			return "", err
+			return 0, "", nil, err
 		}
 	}
 
@@ -275,22 +347,22 @@ func (h *HTTPFetcher) Fetch(u *URL) (string, error) {
 	_, err := conn.Write([]byte(request))
 	if err != nil {
 		conn.Close() // 전송 실패 시 연결 닫기
-		return "", err
+		return 0, "", nil, err
 	}
 
 	// Read and parse HTTP response
 	logger.Printf("Request sent to %s:%d", u.Host, u.Port)
 
-	body, _, err := parseResponse(conn) // Ignore headers for now
+	statusCode, body, respHeaders, err := parseResponse(conn)
 	if err != nil {
 		conn.Close() // Close on parse error
-		return "", err
+		return 0, "", nil, err
 	}
 
 	// 3. Return connection to pool for reuse
 	globalConnectionPool.Put(address, conn)
 
-	return body, nil
+	return statusCode, body, respHeaders, nil
 }
 
 // readChunkedBody reads an HTTP response body with Transfer-Encoding: chunked.
@@ -393,12 +465,13 @@ func readHeaders(reader *bufio.Reader) (map[string]string, error) {
 		if colonIdx > 0 {
 			key := strings.TrimSpace(line[:colonIdx])
 			value := strings.TrimSpace(line[colonIdx+1:])
-			headers[key] = value
+			// Normalize header names to lowercase (HTTP headers are case-insensitive)
+			headers[strings.ToLower(key)] = value
 		}
 	}
 
 	// Log Connection header for Keep-Alive debugging
-	if connHeader, ok := headers["Connection"]; ok {
+	if connHeader, ok := headers["connection"]; ok {
 		logger.Printf("Server Connection header: %s", connHeader)
 	}
 
@@ -427,7 +500,7 @@ func readHeaders(reader *bufio.Reader) (map[string]string, error) {
 //   - error: if body reading fails
 func readBody(reader *bufio.Reader, headers map[string]string) ([]byte, error) {
 	// Priority 1: Transfer-Encoding: chunked
-	if transferEncoding, ok := headers["Transfer-Encoding"]; ok && transferEncoding == "chunked" {
+	if transferEncoding, ok := headers["transfer-encoding"]; ok && transferEncoding == "chunked" {
 		bodyBytes, err := readChunkedBody(reader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read chunked body: %w", err)
@@ -437,7 +510,7 @@ func readBody(reader *bufio.Reader, headers map[string]string) ([]byte, error) {
 	}
 
 	// Priority 2: Content-Length
-	if contentLengthStr, ok := headers["Content-Length"]; ok {
+	if contentLengthStr, ok := headers["content-length"]; ok {
 		contentLength, parseErr := strconv.Atoi(contentLengthStr)
 		if parseErr != nil || contentLength < 0 {
 			return nil, fmt.Errorf("invalid Content-Length: %v", parseErr)
@@ -462,7 +535,7 @@ func readBody(reader *bufio.Reader, headers map[string]string) ([]byte, error) {
 	return bodyBytes, nil
 }
 
-// parseResponse parses an HTTP response and returns the body and headers.
+// parseResponse parses an HTTP response and returns the status code, body and headers.
 //
 // It reads the status line, parses headers, and reads the body.
 // This function orchestrates the parsing process by delegating to:
@@ -470,32 +543,47 @@ func readBody(reader *bufio.Reader, headers map[string]string) ([]byte, error) {
 //   - readBody() for body reading with appropriate strategy
 //
 // Returns:
+//   - statusCode: HTTP status code (e.g., 200, 302, 404)
 //   - body: response body as string
 //   - headers: map of header names to values
 //   - error: any error encountered during parsing
-func parseResponse(r io.Reader) (body string, headers map[string]string, err error) {
+func parseResponse(r io.Reader) (statusCode int, body string, headers map[string]string, err error) {
 	reader := bufio.NewReader(r)
 
 	// 1. Read status line (e.g., "HTTP/1.1 200 OK")
 	statusLine, err := reader.ReadString('\n')
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to read status line: %w", err)
+		return 0, "", nil, fmt.Errorf("failed to read status line: %w", err)
 	}
-	_ = statusLine // TODO: parse and return status code
+
+	// Parse status code from status line
+	// Format: "HTTP/1.1 200 OK\r\n"
+	statusLine = strings.TrimSpace(statusLine)
+	parts := strings.SplitN(statusLine, " ", 3)
+	if len(parts) < 2 {
+		return 0, "", nil, fmt.Errorf("invalid status line: %q", statusLine)
+	}
+
+	statusCode, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, "", nil, fmt.Errorf("invalid status code in status line %q: %w", statusLine, err)
+	}
+
+	logger.Printf("Status: %d %s", statusCode, statusLine)
 
 	// 2. Parse headers
 	headers, err = readHeaders(reader)
 	if err != nil {
-		return "", nil, err
+		return statusCode, "", nil, err
 	}
 
 	// 3. Read body
 	bodyBytes, err := readBody(reader, headers)
 	if err != nil {
-		return "", headers, err
+		return statusCode, "", headers, err
 	}
 
-	return string(bodyBytes), headers, nil
+	return statusCode, string(bodyBytes), headers, nil
 }
 
 // Fetch: ViewSourceFetcher의 Fetch 메서드 구현
