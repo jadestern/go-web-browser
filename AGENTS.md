@@ -89,8 +89,11 @@ When providing integration instructions, use the **Before/After format** with fo
 - ✅ **Copy-paste friendly** - Before/After should be directly usable
 - ✅ **Clear boundaries** - show where to add new functions
 - ✅ **Contextual hints** - use `// ... (기존 코드 유지)` for unchanged parts
+- ✅ **Break large additions into small steps** - split big code blocks into multiple Changes (one struct/function per Change)
+- ✅ **Progressive learning** - students understand better when adding one piece at a time
 - ❌ **Avoid diff markers** (+/-) - they make copying difficult
 - ❌ **Don't use line-by-line diffs** - show complete blocks instead
+- ❌ **Don't dump large code blocks** - overwhelming and hard to learn from
 
 **Example 1: Modifying existing code**
 
@@ -295,12 +298,12 @@ When the user says **"wrapup"**, it means:
 
 #### Korean Language Usage
 
-**All user-facing messages should be in Korean:**
+**All user-facing messages and code comments should be in Korean:**
 
 - ✅ **Logger messages** (HTTP, debug logs)
 - ✅ **Error messages** (returned to user)
 - ✅ **User prompts** (console output)
-- ❌ **Code comments** (keep in English for code clarity)
+- ✅ **Code comments** (주석도 한글로 작성)
 - ❌ **Variable/function names** (keep in English)
 
 **Examples:**
@@ -320,9 +323,18 @@ return nil, fmt.Errorf("지원하지 않는 Location 형식: %q", location)
 fmt.Printf("브라우징: %s\n", urlObj.String())
 fmt.Printf("요청 실패 (%s): %v\n", urlObj.String(), err)
 
-// Good - English code comments
-// Parse status code from status line
-// Format: "HTTP/1.1 200 OK\r\n"
+// Good - Korean code comments
+// 상태 라인에서 상태 코드 파싱
+// 형식: "HTTP/1.1 200 OK\r\n"
+
+// 캐시에서 먼저 확인
+if entry, found := globalCache.Get(urlStr); found {
+	return entry.Body, nil
+}
+
+// Bad - English comments (avoid)
+// Parse status code from status line  // ❌
+// Format: "HTTP/1.1 200 OK\r\n"        // ❌
 
 // Bad - English error messages (avoid)
 return "", fmt.Errorf("redirect without Location header")  // ❌
@@ -331,13 +343,14 @@ return "", fmt.Errorf("too many redirects")  // ❌
 
 **Rationale:**
 - This is a Korean learning project for Korean students
-- Korean messages improve readability and debugging experience
+- Korean messages and comments improve readability and learning experience
 - Code remains internationally readable (English identifiers)
-- Comments in English maintain code portability
+- Korean comments help students understand the code better
 
 **Format consistency:**
 - Use informal Korean (반말) for logs: "생성", "읽음", "완료"
 - Use polite form for user errors: "~습니다", "~없습니다"
+- Use informal Korean (반말) for comments: "파싱", "확인", "저장"
 - Include technical details in parentheses: "최대 10회", "status 302"
 
 ## Build and Run Commands
@@ -401,6 +414,9 @@ When creating commits, use **Conventional Commits** format **in Korean**:
 
 **Examples (Korean):**
 ```bash
+# New feature with chapter number (recommended for exercises)
+feat(http): [1-8 캐싱] HTTP 응답 캐싱 구현
+
 # New feature
 feat(http): chunked encoding 구현
 
@@ -410,29 +426,31 @@ fix(parser): self-closing 태그 처리 수정
 # Refactoring
 refactor(http): parseResponse 함수 분리
 
+# Documentation with chapter number
+docs: [1-7 리다이렉트] 학습 내용 추가
+
 # Documentation
 docs: chunked encoding 학습 내용 추가
 
 # Multiple changes in one commit
-feat(http): Keep-Alive 연결 풀링 구현
+feat(http): [1-7 Keep-Alive] 연결 풀링 구현
 
 - LIFO 전략의 ConnectionPool 추가
 - Content-Length 기반 body 읽기 구현
 - 연결 재사용 로깅 추가
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 **Important:**
 - **Write commit messages in Korean** (커밋 메시지는 한글로 작성)
+- **Include chapter number for exercises** (연습문제는 챕터 번호 포함)
+  - Format: `[챕터번호 주제]` in subject line
+  - Example: `feat(http): [1-8 캐싱] HTTP 응답 캐싱 구현`
+  - Makes it easier to find commits related to specific book chapters
 - Use noun form, not verb form (명사형 사용: "추가" not "추가한다" or "추가했다")
 - Don't capitalize first letter of subject (제목 첫 글자 대문자 사용 안 함)
 - No period at the end of subject (제목 끝에 마침표 사용 안 함)
 - Keep subject line under 50 characters (제목은 50자 이내)
 - Wrap body at 72 characters (본문은 72자에서 줄바꿈)
-- Include Claude attribution for AI-assisted commits (AI 지원 커밋에는 Claude 서명 포함)
 
 ## GitHub CLI (gh) Usage
 

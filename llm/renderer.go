@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"go-web-browser/llm/url"
+)
 
 // Renderer 인터페이스: 콘텐츠 렌더링을 추상화
 type Renderer interface {
@@ -22,12 +25,12 @@ func (s *SourceRenderer) Render(content string) {
 }
 
 // rendererRegistry: scheme에 따른 Renderer를 등록하는 레지스트리
-var rendererRegistry = map[Scheme]Renderer{
-	SchemeViewSource: &SourceRenderer{},
+var rendererRegistry = map[url.Scheme]Renderer{
+	url.SchemeViewSource: &SourceRenderer{},
 }
 
 // getRenderer: scheme에 맞는 Renderer 반환, 기본은 HTMLRenderer
-func getRenderer(scheme Scheme) Renderer {
+func getRenderer(scheme url.Scheme) Renderer {
 	if renderer, ok := rendererRegistry[scheme]; ok {
 		return renderer
 	}

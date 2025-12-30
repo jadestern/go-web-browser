@@ -1,7 +1,9 @@
-package main
+package net_test
 
 import (
-	"net"
+	"go-web-browser/net"
+	"go-web-browser/url"
+	stdnet "net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,12 +19,12 @@ import (
 func TestFileFetcher_SimpleHTML(t *testing.T) {
 	urlStr := "file://testdata/simple.html"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -42,12 +44,12 @@ func TestFileFetcher_SimpleHTML(t *testing.T) {
 func TestFileFetcher_EmptyHTML(t *testing.T) {
 	urlStr := "file://testdata/empty.html"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -62,12 +64,12 @@ func TestFileFetcher_EmptyHTML(t *testing.T) {
 func TestFileFetcher_EntitiesHTML(t *testing.T) {
 	urlStr := "file://testdata/entities.html"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -82,12 +84,12 @@ func TestFileFetcher_EntitiesHTML(t *testing.T) {
 func TestFileFetcher_FileNotFound(t *testing.T) {
 	urlStr := "file://testdata/nonexistent.html"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	_, err = url.Request()
+	_, err = net.Request(u)
 	if err == nil {
 		t.Error("Request() should return error for nonexistent file")
 	}
@@ -115,12 +117,12 @@ func containsAny(s string, substrs ...string) bool {
 func TestDataFetcher_PlainText(t *testing.T) {
 	urlStr := "data:text/html,<h1>Hello World</h1>"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -136,12 +138,12 @@ func TestDataFetcher_Base64(t *testing.T) {
 	// "<h1>Hello</h1>"를 base64 인코딩: PGgxPkhlbGxvPC9oMT4=
 	urlStr := "data:text/html;base64,PGgxPkhlbGxvPC9oMT4="
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -157,12 +159,12 @@ func TestDataFetcher_URLEncoded(t *testing.T) {
 	// 공백이 %20으로 인코딩됨
 	urlStr := "data:text/html,Hello%20World"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -177,12 +179,12 @@ func TestDataFetcher_URLEncoded(t *testing.T) {
 func TestDataFetcher_ComplexHTML(t *testing.T) {
 	urlStr := "data:text/html,<html><body><p>Test</p></body></html>"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -197,12 +199,12 @@ func TestDataFetcher_ComplexHTML(t *testing.T) {
 func TestDataFetcher_MissingComma(t *testing.T) {
 	urlStr := "data:text/html"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	_, err = url.Request()
+	_, err = net.Request(u)
 	if err == nil {
 		t.Error("Request() should return error for data URL without comma")
 	}
@@ -212,12 +214,12 @@ func TestDataFetcher_MissingComma(t *testing.T) {
 func TestDataFetcher_InvalidBase64(t *testing.T) {
 	urlStr := "data:text/html;base64,invalid!!!"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	_, err = url.Request()
+	_, err = net.Request(u)
 	if err == nil {
 		t.Error("Request() should return error for invalid base64")
 	}
@@ -235,8 +237,8 @@ func TestHTTPFetcher_Success(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("Expected GET request, got %s", r.Method)
 		}
-		if r.Header.Get("User-Agent") != UserAgent {
-			t.Errorf("Expected User-Agent %q, got %q", UserAgent, r.Header.Get("User-Agent"))
+		if r.Header.Get("User-Agent") != net.UserAgent {
+			t.Errorf("Expected User-Agent %q, got %q", net.UserAgent, r.Header.Get("User-Agent"))
 		}
 
 		// 응답 전송
@@ -245,12 +247,12 @@ func TestHTTPFetcher_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL)
+	u, err := url.NewURL(server.URL)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", server.URL, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", server.URL, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -275,12 +277,12 @@ func TestHTTPFetcher_WithPath(t *testing.T) {
 
 	// server.URL에 경로 추가
 	urlStr := server.URL + "/test/page.html"
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -298,12 +300,12 @@ func TestHTTPFetcher_EmptyResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL)
+	u, err := url.NewURL(server.URL)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", server.URL, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", server.URL, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -319,17 +321,17 @@ func TestHTTPFetcher_EmptyResponse(t *testing.T) {
 func TestHTTPFetcher_HTTPS(t *testing.T) {
 	urlStr := "https://example.com/index.html"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
 	// HTTPS URL이 올바르게 파싱되는지 확인
-	if url.Scheme != "https" {
-		t.Errorf("Scheme = %q; want %q", url.Scheme, "https")
+	if u.Scheme != "https" {
+		t.Errorf("Scheme = %q; want %q", u.Scheme, "https")
 	}
-	if url.Port != 443 {
-		t.Errorf("Port = %d; want %d", url.Port, 443)
+	if u.Port != 443 {
+		t.Errorf("Port = %d; want %d", u.Port, 443)
 	}
 
 	// 실제 네트워크 요청은 테스트 환경에 따라 실패할 수 있으므로 스킵
@@ -340,12 +342,12 @@ func TestHTTPFetcher_HTTPS(t *testing.T) {
 func TestHTTPFetcher_InvalidHost(t *testing.T) {
 	urlStr := "http://invalid-host-that-does-not-exist-12345.com/"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	_, err = url.Request()
+	_, err = net.Request(u)
 	if err == nil {
 		t.Error("Request() should return error for invalid host")
 	}
@@ -359,12 +361,12 @@ func TestHTTPFetcher_InvalidHost(t *testing.T) {
 func TestViewSourceFetcher_DataURL(t *testing.T) {
 	urlStr := "view-source:data:text/html,<h1>Hello</h1>"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -386,12 +388,12 @@ func TestViewSourceFetcher_HTTP(t *testing.T) {
 
 	urlStr := "view-source:" + server.URL
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -407,12 +409,12 @@ func TestViewSourceFetcher_HTTP(t *testing.T) {
 func TestViewSourceFetcher_File(t *testing.T) {
 	urlStr := "view-source:file://testdata/simple.html"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -432,12 +434,12 @@ func TestViewSourceFetcher_File(t *testing.T) {
 func TestViewSourceFetcher_InvalidFormat(t *testing.T) {
 	urlStr := "view-source:"
 
-	url, err := NewURL(urlStr)
+	u, err := url.NewURL(urlStr)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", urlStr, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", urlStr, err)
 	}
 
-	_, err = url.Request()
+	_, err = net.Request(u)
 	if err == nil {
 		t.Error("Request() should return error for view-source with no inner URL")
 	}
@@ -447,7 +449,7 @@ func TestViewSourceFetcher_InvalidFormat(t *testing.T) {
 // ConnectionPool 테스트
 // ============================================
 
-// mockAddr: 테스트용 가짜 net.Addr
+// mockAddr: 테스트용 가짜 stdnet.Addr
 type mockAddr struct{}
 
 func (m *mockAddr) Network() string { return "tcp" }
@@ -459,18 +461,18 @@ type mockConn struct {
 	id     int // 연결 구분용
 }
 
-func (m *mockConn) Read(b []byte) (n int, err error)        { return 0, nil }
-func (m *mockConn) Write(b []byte) (n int, err error)       { return len(b), nil }
-func (m *mockConn) Close() error                            { m.closed = true; return nil }
-func (m *mockConn) LocalAddr() net.Addr                     { return &mockAddr{} }
-func (m *mockConn) RemoteAddr() net.Addr                    { return &mockAddr{} }
-func (m *mockConn) SetDeadline(t time.Time) error           { return nil }
-func (m *mockConn) SetReadDeadline(t time.Time) error       { return nil }
-func (m *mockConn) SetWriteDeadline(t time.Time) error      { return nil }
+func (m *mockConn) Read(b []byte) (n int, err error)   { return 0, nil }
+func (m *mockConn) Write(b []byte) (n int, err error)  { return len(b), nil }
+func (m *mockConn) Close() error                       { m.closed = true; return nil }
+func (m *mockConn) LocalAddr() stdnet.Addr             { return &mockAddr{} }
+func (m *mockConn) RemoteAddr() stdnet.Addr            { return &mockAddr{} }
+func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
+func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
+func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
 
 // TestConnectionPool_GetPut 기본 Get/Put 동작
 func TestConnectionPool_GetPut(t *testing.T) {
-	pool := NewConnectionPool()
+	pool := net.NewConnectionPool()
 	address := "example.com:80"
 
 	// 1. 빈 Pool에서 Get → 없어야 함
@@ -504,7 +506,7 @@ func TestConnectionPool_GetPut(t *testing.T) {
 
 // TestConnectionPool_MaxPerHost Pool이 6개로 제한되는지 테스트
 func TestConnectionPool_MaxPerHost(t *testing.T) {
-	pool := NewConnectionPool()
+	pool := net.NewConnectionPool()
 	address := "example.com:80"
 
 	// 1. 10개 연결 Put
@@ -545,7 +547,7 @@ func TestConnectionPool_MaxPerHost(t *testing.T) {
 
 // TestConnectionPool_MultiplHosts 여러 호스트 동시 관리
 func TestConnectionPool_MultipleHosts(t *testing.T) {
-	pool := NewConnectionPool()
+	pool := net.NewConnectionPool()
 
 	address1 := "example.com:80"
 	address2 := "google.com:80"
@@ -571,7 +573,7 @@ func TestConnectionPool_MultipleHosts(t *testing.T) {
 
 // TestConnectionPool_Close 특정 호스트의 모든 연결 닫기
 func TestConnectionPool_Close(t *testing.T) {
-	pool := NewConnectionPool()
+	pool := net.NewConnectionPool()
 	address := "example.com:80"
 
 	// 3개 연결 저장
@@ -625,12 +627,12 @@ func TestHTTPFetcher_ChunkedEncoding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL)
+	u, err := url.NewURL(server.URL)
 	if err != nil {
-		t.Fatalf("NewURL(%q) failed: %v", server.URL, err)
+		t.Fatalf("url.NewURL(%q) failed: %v", server.URL, err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -660,12 +662,12 @@ func TestHTTPFetcher_ChunkedEncodingMultipleChunks(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL)
+	u, err := url.NewURL(server.URL)
 	if err != nil {
 		t.Fatalf("NewURL failed: %v", err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -696,12 +698,12 @@ func TestHTTPFetcher_ChunkedEncodingLarge(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL)
+	u, err := url.NewURL(server.URL)
 	if err != nil {
 		t.Fatalf("NewURL failed: %v", err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -732,12 +734,12 @@ func TestHTTPFetcher_Redirect302(t *testing.T) {
 	}))
 	defer redirectServer.Close()
 
-	url, err := NewURL(redirectServer.URL)
+	u, err := url.NewURL(redirectServer.URL)
 	if err != nil {
 		t.Fatalf("NewURL failed: %v", err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -764,12 +766,12 @@ func TestHTTPFetcher_RedirectRelativeURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL + "/redirect")
+	u, err := url.NewURL(server.URL + "/redirect")
 	if err != nil {
 		t.Fatalf("NewURL failed: %v", err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -799,12 +801,12 @@ func TestHTTPFetcher_RedirectChain(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL + "/step1")
+	u, err := url.NewURL(server.URL + "/step1")
 	if err != nil {
 		t.Fatalf("NewURL failed: %v", err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -826,12 +828,12 @@ func TestHTTPFetcher_RedirectTooMany(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL + "/loop")
+	u, err := url.NewURL(server.URL + "/loop")
 	if err != nil {
 		t.Fatalf("NewURL failed: %v", err)
 	}
 
-	_, err = url.Request()
+	_, err = net.Request(u)
 	if err == nil {
 		t.Error("Request() should return error for too many redirects")
 	}
@@ -851,12 +853,12 @@ func TestHTTPFetcher_RedirectNoLocation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	url, err := NewURL(server.URL)
+	u, err := url.NewURL(server.URL)
 	if err != nil {
 		t.Fatalf("NewURL failed: %v", err)
 	}
 
-	_, err = url.Request()
+	_, err = net.Request(u)
 	if err == nil {
 		t.Error("Request() should return error for redirect without Location header")
 	}
@@ -881,12 +883,12 @@ func TestHTTPFetcher_Redirect301(t *testing.T) {
 	}))
 	defer redirectServer.Close()
 
-	url, err := NewURL(redirectServer.URL)
+	u, err := url.NewURL(redirectServer.URL)
 	if err != nil {
 		t.Fatalf("NewURL failed: %v", err)
 	}
 
-	content, err := url.Request()
+	content, err := net.Request(u)
 	if err != nil {
 		t.Fatalf("Request() failed: %v", err)
 	}
@@ -894,5 +896,314 @@ func TestHTTPFetcher_Redirect301(t *testing.T) {
 	expected := "<h1>Permanent Location</h1>"
 	if content != expected {
 		t.Errorf("content = %q; want %q", content, expected)
+	}
+}
+
+// ============================================
+// Caching 테스트
+// ============================================
+
+// TestHTTPFetcher_CacheBasic: 기본 캐싱 동작 - 동일한 URL 두 번 요청
+func TestHTTPFetcher_CacheBasic(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<h1>Cached Page</h1>"))
+	}))
+	defer server.Close()
+
+	// Clear cache before test
+	net.GlobalCache.Clear()
+
+	u, err := url.NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	// First request - should hit server
+	content1, err := net.Request(u)
+	if err != nil {
+		t.Fatalf("First Request() failed: %v", err)
+	}
+
+	if requestCount != 1 {
+		t.Errorf("First request should hit server once, got %d requests", requestCount)
+	}
+
+	// Second request - should hit cache
+	content2, err := net.Request(u)
+	if err != nil {
+		t.Fatalf("Second Request() failed: %v", err)
+	}
+
+	if requestCount != 1 {
+		t.Errorf("Second request should not hit server (cached), got %d requests", requestCount)
+	}
+
+	// Both should return same content
+	if content1 != content2 {
+		t.Errorf("Cached content differs: %q vs %q", content1, content2)
+	}
+
+	expected := "<h1>Cached Page</h1>"
+	if content2 != expected {
+		t.Errorf("content = %q; want %q", content2, expected)
+	}
+}
+
+// TestHTTPFetcher_CacheNoStore: Cache-Control: no-store는 캐시하지 않음
+func TestHTTPFetcher_CacheNoStore(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<h1>No Cache</h1>"))
+	}))
+	defer server.Close()
+
+	// Clear cache before test
+	net.GlobalCache.Clear()
+
+	u, err := url.NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	// First request
+	_, err = net.Request(u)
+	if err != nil {
+		t.Fatalf("First Request() failed: %v", err)
+	}
+
+	// Second request - should still hit server (no-store)
+	_, err = net.Request(u)
+	if err != nil {
+		t.Fatalf("Second Request() failed: %v", err)
+	}
+
+	if requestCount != 2 {
+		t.Errorf("no-store should not cache, expected 2 server requests, got %d", requestCount)
+	}
+}
+
+// TestHTTPFetcher_CacheMaxAge: Cache-Control: max-age=60은 캐시함
+func TestHTTPFetcher_CacheMaxAge(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Cache-Control", "max-age=60")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<h1>Max Age Cache</h1>"))
+	}))
+	defer server.Close()
+
+	// Clear cache before test
+	net.GlobalCache.Clear()
+
+	u, err := url.NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	// First request
+	content1, err := net.Request(u)
+	if err != nil {
+		t.Fatalf("First Request() failed: %v", err)
+	}
+
+	// Second request - should hit cache (within max-age)
+	content2, err := net.Request(u)
+	if err != nil {
+		t.Fatalf("Second Request() failed: %v", err)
+	}
+
+	if requestCount != 1 {
+		t.Errorf("max-age should cache, expected 1 server request, got %d", requestCount)
+	}
+
+	if content1 != content2 {
+		t.Errorf("Cached content differs: %q vs %q", content1, content2)
+	}
+}
+
+// TestHTTPFetcher_CacheExpired: max-age 초과 시 캐시 무효화
+func TestHTTPFetcher_CacheExpired(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		// 1초 max-age
+		w.Header().Set("Cache-Control", "max-age=1")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<h1>Expiring Cache</h1>"))
+	}))
+	defer server.Close()
+
+	// Clear cache before test
+	net.GlobalCache.Clear()
+
+	u, err := url.NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	// First request
+	_, err = net.Request(u)
+	if err != nil {
+		t.Fatalf("First Request() failed: %v", err)
+	}
+
+	// Wait for cache to expire
+	time.Sleep(2 * time.Second)
+
+	// Second request - should hit server (cache expired)
+	_, err = net.Request(u)
+	if err != nil {
+		t.Fatalf("Second Request() failed: %v", err)
+	}
+
+	if requestCount != 2 {
+		t.Errorf("Expired cache should re-fetch, expected 2 server requests, got %d", requestCount)
+	}
+}
+
+// TestHTTPFetcher_CacheOtherDirectives: 다른 Cache-Control 값은 캐시하지 않음
+func TestHTTPFetcher_CacheOtherDirectives(t *testing.T) {
+	testCases := []struct {
+		name         string
+		cacheControl string
+	}{
+		{"must-revalidate", "must-revalidate"},
+		{"private", "private"},
+		{"public", "public"},
+		{"no-cache", "no-cache"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			requestCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestCount++
+				w.Header().Set("Cache-Control", tc.cacheControl)
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("<h1>Test</h1>"))
+			}))
+			defer server.Close()
+
+			// Clear cache before test
+			net.GlobalCache.Clear()
+
+			u, err := url.NewURL(server.URL)
+			if err != nil {
+				t.Fatalf("NewURL failed: %v", err)
+			}
+
+			// First request
+			_, err = net.Request(u)
+			if err != nil {
+				t.Fatalf("First Request() failed: %v", err)
+			}
+
+			// Second request - should still hit server (unknown directive)
+			_, err = net.Request(u)
+			if err != nil {
+				t.Fatalf("Second Request() failed: %v", err)
+			}
+
+			if requestCount != 2 {
+				t.Errorf("%s should not cache, expected 2 server requests, got %d", tc.name, requestCount)
+			}
+		})
+	}
+}
+
+// TestHTTPFetcher_CacheNoCacheControl: Cache-Control 헤더 없으면 기본 캐시
+func TestHTTPFetcher_CacheNoCacheControl(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		// No Cache-Control header
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<h1>Default Cache</h1>"))
+	}))
+	defer server.Close()
+
+	// Clear cache before test
+	net.GlobalCache.Clear()
+
+	u, err := url.NewURL(server.URL)
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	// First request
+	_, err = net.Request(u)
+	if err != nil {
+		t.Fatalf("First Request() failed: %v", err)
+	}
+
+	// Second request - should hit cache (default cacheable)
+	_, err = net.Request(u)
+	if err != nil {
+		t.Fatalf("Second Request() failed: %v", err)
+	}
+
+	if requestCount != 1 {
+		t.Errorf("No Cache-Control should cache by default, expected 1 server request, got %d", requestCount)
+	}
+}
+
+// TestHTTPFetcher_CacheDifferentURLs: 다른 URL은 별도로 캐시
+func TestHTTPFetcher_CacheDifferentURLs(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<h1>" + r.URL.Path + "</h1>"))
+	}))
+	defer server.Close()
+
+	// Clear cache before test
+	net.GlobalCache.Clear()
+
+	u1, err := url.NewURL(server.URL + "/page1")
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	u2, err := url.NewURL(server.URL + "/page2")
+	if err != nil {
+		t.Fatalf("NewURL failed: %v", err)
+	}
+
+	// Request url1
+	content1, err := net.Request(u1)
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	// Request url2 - different URL, should hit server
+	content2, err := net.Request(u2)
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	if requestCount != 2 {
+		t.Errorf("Different URLs should not share cache, expected 2 requests, got %d", requestCount)
+	}
+
+	if content1 == content2 {
+		t.Error("Different URLs should have different content")
+	}
+
+	// Request url1 again - should hit cache
+	_, err = net.Request(u1)
+	if err != nil {
+		t.Fatalf("Request() failed: %v", err)
+	}
+
+	if requestCount != 2 {
+		t.Errorf("Second request to url1 should hit cache, expected 2 total requests, got %d", requestCount)
 	}
 }

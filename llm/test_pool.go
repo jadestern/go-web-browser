@@ -1,7 +1,11 @@
+// +build ignore
+
 package main
 
 import (
 	"fmt"
+	"go-web-browser/llm/net"
+	"go-web-browser/llm/url"
 	"sync"
 )
 
@@ -18,13 +22,13 @@ func testConcurrentRequests() {
 		go func(num int) {
 			defer wg.Done()
 
-			urlObj, err := NewURL(testURL)
+			urlObj, err := url.NewURL(testURL)
 			if err != nil {
 				fmt.Printf("[요청 %d] URL 파싱 에러: %v\n", num, err)
 				return
 			}
 
-			body, err := urlObj.Request()
+			body, err := net.Request(urlObj)
 			if err != nil {
 				fmt.Printf("[요청 %d] 요청 실패: %v\n", num, err)
 				return
@@ -50,8 +54,8 @@ func testSequentialRequests() {
 
 	for i := 1; i <= 3; i++ {
 		fmt.Printf("\n[요청 %d]\n", i)
-		urlObj, _ := NewURL(testURL)
-		urlObj.Request()
+		urlObj, _ := url.NewURL(testURL)
+		net.Request(urlObj)
 	}
 
 	fmt.Println("\n=== 순차 요청 완료 ===")

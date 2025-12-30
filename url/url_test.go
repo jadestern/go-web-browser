@@ -1,6 +1,8 @@
-package main
+package url
 
-import "testing"
+import (
+	"testing"
+)
 
 // ============================================
 // NewURL 테스트

@@ -809,6 +809,162 @@
 
 ---
 
+### 2025-12-30 (오후): 패키지 구조 리팩토링 및 테스트 마이그레이션
+
+#### Phase 1: 패키지 분리 설계
+- **문제 인식**: 단일 package main으로 모든 코드 관리의 한계
+  - 모듈화 부족: HTTP, URL, 로거가 모두 main에 혼재
+  - 테스트 어려움: 패키지별 독립적 테스트 불가
+  - 재사용성 낮음: 다른 프로젝트에서 HTTP 클라이언트만 사용 불가
+  - 의존성 불명확: 어떤 코드가 어떤 코드에 의존하는지 모호
+
+#### Phase 2: 패키지 분리 전략 수립
+- **3개 패키지로 분리**:
+  1. `url` 패키지: URL 파싱 및 Scheme 상수
+  2. `logger` 패키지: 전역 Logger 인스턴스
+  3. `net` 패키지: HTTP 클라이언트, 캐싱, 연결 풀, Fetcher 인터페이스
+
+- **파일 매핑**:
+  ```
+  Before (package main):
+  ├── fetchers.go          → net/fetchers.go
+  ├── http_fetcher.go      → net/http.go
+  ├── http_helpers.go      → net/helpers.go
+  ├── cache.go             → net/cache.go
+  ├── connection_pool.go   → net/pool.go
+  ├── logger.go            → logger/logger.go
+  └── url.go               → url/url.go
+  ```
+
+#### Phase 3: 패키지 구현 (llm 디렉토리)
+- **url 패키지** (llm/url/url.go):
+  - package main → package url
+  - export: URL, Scheme, NewURL, SchemeHTTP 등
+  - 의존성: 없음 (순수 파싱 로직)
+
+- **logger 패키지** (llm/logger/logger.go):
+  - package main → package logger
+  - export: Logger (*log.Logger)
+  - logger.Printf() → logger.Logger.Printf()
+
+- **net 패키지** (llm/net/):
+  - package main → package net
+  - export: Fetcher, Request(), GlobalCache, GlobalConnectionPool
+  - 의존성: url, logger
+  - 순환 참조 해결: url.Request() → net.Request(url.URL)
+
+#### Phase 4: 테스트 마이그레이션 (표준 Go 구조)
+- **테스트 파일 이동**:
+  ```
+  Before (루트):
+  ├── fetchers_test.go (package main)
+  └── url_test.go (package main)
+
+  After (패키지별):
+  ├── net/net_test.go (package net_test)  ← 블랙박스 테스트
+  └── url/url_test.go (package url)       ← 화이트박스 테스트
+  ```
+
+- **화이트박스 vs 블랙박스**:
+  - url/url_test.go: `package url` (비공개 함수 테스트 필요)
+  - net/net_test.go: `package net_test` (공개 API만 테스트)
+
+- **testdata 공유**:
+  - net/testdata → ../testdata (symlink)
+  - llm/net/testdata → ../../testdata (symlink)
+
+#### Go 언어 개념 학습
+- **패키지 시스템**:
+  - package 선언: 디렉토리 이름과 일치
+  - import 경로: go.mod의 module path 기준
+  - export 규칙: 대문자 시작 = public, 소문자 = private
+
+- **테스트 패키지**:
+  - `package net_test`: 외부 사용자 관점 테스트 (블랙박스)
+  - `package net`: 내부 구현 테스트 (화이트박스)
+  - 비공개 함수 테스트: 화이트박스 필요
+
+- **순환 참조 방지**:
+  - url 패키지가 net 패키지를 import하면 순환 참조
+  - 해결: net.Request(url.URL) 함수로 의존성 역전
+
+#### 설계 패턴
+- **레이어드 아키텍처**:
+  ```
+  main (browser.go, parser.go, renderer.go)
+    ↓
+  net (HTTP 클라이언트) ← logger
+    ↓
+  url (URL 파싱)
+  ```
+
+- **의존성 방향**:
+  - logger: 의존성 없음 (최하위 유틸리티)
+  - url: logger 의존 (파싱만 담당)
+  - net: url + logger 의존 (HTTP 클라이언트)
+  - main: net + url 의존 (통합)
+
+#### 최종 결과
+- **패키지 구조** (루트 및 llm 모두):
+  ```
+  go-web-browser/
+  ├── browser.go           (package main)
+  ├── parser.go            (package main)
+  ├── renderer.go          (package main)
+  ├── parser_test.go       (package main)
+  │
+  ├── net/
+  │   ├── fetchers.go
+  │   ├── http.go
+  │   ├── helpers.go
+  │   ├── cache.go
+  │   ├── pool.go
+  │   ├── net_test.go      (package net_test)
+  │   └── testdata/        (symlink)
+  │
+  ├── url/
+  │   ├── url.go
+  │   └── url_test.go      (package url)
+  │
+  └── logger/
+      └── logger.go
+  ```
+
+- **테스트 실행**:
+  ```bash
+  go test ./...              # 모든 패키지 테스트
+  go test ./net              # net 패키지만
+  go test ./url              # url 패키지만
+  ```
+
+- **빌드 검증**:
+  - ✅ 루트: go build (성공)
+  - ✅ llm: go build (성공)
+  - ✅ 모든 테스트 통과 (47개)
+
+#### 학습 개념
+- **모듈화 (Modularization)**:
+  - 관심사 분리 (Separation of Concerns)
+  - 단일 책임 원칙 (Single Responsibility Principle)
+  - 패키지 간 명확한 경계
+
+- **의존성 관리**:
+  - 순환 참조 방지
+  - 의존성 역전 원칙 (Dependency Inversion)
+  - 계층화된 아키텍처
+
+- **테스트 전략**:
+  - 블랙박스 테스트: 외부 API 검증
+  - 화이트박스 테스트: 내부 로직 검증
+  - 패키지별 독립적 테스트
+
+#### 다음 작업 후보
+1. **HTTP 캐싱 구현** (Cache-Control 헤더)
+2. **쿠키 관리** (Cookie/Set-Cookie)
+3. **CHAPTER 2 시작** (GUI 렌더링) - 추천!
+
+---
+
 ## 다음 세션 작업 가이드
 
 ### 현재 상태 (2025-12-28 저녁)

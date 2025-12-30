@@ -2,13 +2,15 @@ package main
 
 import (
 	"fmt"
+	"go-web-browser/llm/net"
+	"go-web-browser/llm/url"
 	"os"
 	"strings"
 )
 
 // load: URL 문자열을 받아서 요청하고 화면에 표시하는 통합 함수
 func load(urlStr string) {
-	urlObj, err := NewURL(urlStr)
+	urlObj, err := url.NewURL(urlStr)
 	if err != nil {
 		fmt.Printf("URL 분석 에러 (%s): %v\n", urlStr, err)
 		return
@@ -16,7 +18,7 @@ func load(urlStr string) {
 
 	fmt.Printf("브라우징: %s\n", urlObj.String())
 
-	body, err := urlObj.Request()
+	body, err := net.Request(urlObj)
 	if err != nil {
 		fmt.Printf("요청 실패 (%s): %v\n", urlObj.String(), err)
 		return
