@@ -194,7 +194,7 @@ go test -v -run TestName
 
 ## Git Commit Guidelines
 
-When creating commits, use **Conventional Commits** format:
+When creating commits, use **Conventional Commits** format **in Korean**:
 
 ### Conventional Commits Format
 
@@ -207,14 +207,14 @@ When creating commits, use **Conventional Commits** format:
 ```
 
 **Types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `refactor`: Code refactoring (no functional changes)
-- `docs`: Documentation only changes
-- `test`: Adding or updating tests
-- `chore`: Maintenance tasks (dependencies, build, etc.)
-- `perf`: Performance improvements
-- `style`: Code style changes (formatting, missing semi-colons, etc.)
+- `feat`: New feature (새 기능)
+- `fix`: Bug fix (버그 수정)
+- `refactor`: Code refactoring (no functional changes) (리팩토링)
+- `docs`: Documentation only changes (문서 변경)
+- `test`: Adding or updating tests (테스트 추가/수정)
+- `chore`: Maintenance tasks (dependencies, build, etc.) (유지보수)
+- `perf`: Performance improvements (성능 개선)
+- `style`: Code style changes (formatting, missing semi-colons, etc.) (코드 스타일)
 
 **Scopes:** (optional but recommended)
 - `http`: HTTP client/networking
@@ -223,26 +223,26 @@ When creating commits, use **Conventional Commits** format:
 - `render`: Rendering
 - `tests`: Test-related changes
 
-**Examples:**
+**Examples (Korean):**
 ```bash
 # New feature
-feat(http): implement chunked encoding support
+feat(http): chunked encoding 구현
 
 # Bug fix
-fix(parser): handle self-closing tags correctly
+fix(parser): self-closing 태그 처리 수정
 
 # Refactoring
-refactor(http): extract parseResponse into smaller functions
+refactor(http): parseResponse 함수 분리
 
 # Documentation
-docs: update learning progress with chunked encoding
+docs: chunked encoding 학습 내용 추가
 
 # Multiple changes in one commit
-feat(http): implement Keep-Alive connection pooling
+feat(http): Keep-Alive 연결 풀링 구현
 
-- Add ConnectionPool with LIFO strategy
-- Implement Content-Length based body reading
-- Add connection reuse logging
+- LIFO 전략의 ConnectionPool 추가
+- Content-Length 기반 body 읽기 구현
+- 연결 재사용 로깅 추가
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
@@ -250,12 +250,13 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 **Important:**
-- Use present tense ("add" not "added")
-- Don't capitalize first letter of subject
-- No period at the end of subject
-- Keep subject line under 50 characters
-- Wrap body at 72 characters
-- Include Claude attribution for AI-assisted commits
+- **Write commit messages in Korean** (커밋 메시지는 한글로 작성)
+- Use noun form, not verb form (명사형 사용: "추가" not "추가한다" or "추가했다")
+- Don't capitalize first letter of subject (제목 첫 글자 대문자 사용 안 함)
+- No period at the end of subject (제목 끝에 마침표 사용 안 함)
+- Keep subject line under 50 characters (제목은 50자 이내)
+- Wrap body at 72 characters (본문은 72자에서 줄바꿈)
+- Include Claude attribution for AI-assisted commits (AI 지원 커밋에는 Claude 서명 포함)
 
 ## GitHub CLI (gh) Usage
 
